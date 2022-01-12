@@ -1,17 +1,5 @@
 #include "AcousticSoundboard.h"
 
-int main(int argc, char** argv) {
-	Initialize();
-
-	while (WindowShouldClose == false) {
-		Update();
-	}
-
-	Close();
-
-	return 0;
-}
-
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
 {
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, Win32Callback, 0L, 0L,
@@ -30,9 +18,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	ShowWindow(hwnd, SW_SHOWDEFAULT);
 	UpdateWindow(hwnd);
 
+	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
+
+	if (KeyboardHook == NULL) {
+		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
+	}
+
+	// Initialize hotkeys indices
+	for (int i = 0; i < NUM_SOUNDS; i++) {
+		Hotkeys[i].sampleIndex = i;
+	}
+
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
+	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
+
+	CurrentPage = 1;
+
+	InitSQLite();
+	LoadHotkeysFromDatabase();
+
+	IMGUI_CHECKVERSION();
 	ImGui::StyleColorsDark();
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX9_Init(g_pd3dDevice);
@@ -42,12 +50,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		Update();
 	}
 
+	// Close
+	if (Autosave == true) {
+		SaveHotkeysToDatabase();
+	}
+
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 	CloseAudioSystem();
 	DestroyWindow(hwnd);
 	UnregisterClass(wc.lpszClassName, wc.hInstance);
+
 	return 0;
 }
 
@@ -57,7 +71,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 		return true;
 
 	switch (message)
-	{
+	{		
 	case WM_SIZE:
 		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 		{
@@ -76,36 +90,220 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	return 0;
 }
 
+void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	(void)pInput;
+	ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
+}
 
-void Initialize() {
-	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
+void CloseAudioSystem()
+{
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (PlaybackEngines[i].active == true)
+		{
+			ma_engine_uninit(&PlaybackEngines[i].engine);
+			ma_device_uninit(&PlaybackEngines[i].device);
 
-	if (KeyboardHook == NULL) {
-		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
+			for (int j = 0; j < MAX_SOUNDS; j++)
+			{
+				ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
+			}
+		}
 	}
 
-	// Initialize hotkeys indices
-	for (int i = 0; i < NUM_SOUNDS; i++) {
-		Hotkeys[i].sampleIndex = i;
+	if (CaptureEngine.active == true)
+	{
+		ma_engine_uninit(&CaptureEngine.engine);
+		ma_device_uninit(&CaptureEngine.device);
 	}
 
+	free(PlaybackDeviceSelected);
+	free(CaptureDeviceSelected);
+	ma_resource_manager_uninit(&ResourceManager);
+}
 
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
-	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
+void ClosePlaybackDevices()
+{
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (PlaybackEngines[i].active == true)
+		{
+			ma_engine_uninit(&PlaybackEngines[i].engine);
+			ma_device_uninit(&PlaybackEngines[i].device);
 
-	CurrentPage = 1;
+			for (int j = 0; j < MAX_SOUNDS; j++)
+			{
+				if (SoundLoaded[i][j] == true)
+				{
+					ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
+					SoundLoaded[i][j] = false;
+				}
+			}
 
-	/*
-	for (size_t i = 0; i < NUM_CHANNELS; i++) {
-		ChannelStates[i].isAvailable = true;
+			PlaybackEngines[i].active = false;
+		}
 	}
-	*/
 
-	InitSQLite();
-	LoadHotkeysFromDatabase();
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		PlaybackDeviceSelected[i] = false;
+
+	NumActivePlaybackDevices = 0;
+}
+
+void CloseCaptureDevice()
+{
+	if (CaptureEngine.active == true)
+	{
+		ma_engine_uninit(&CaptureEngine.engine);
+		ma_device_uninit(&CaptureEngine.device);
+		CaptureEngine.active = false;
+		SelectDuplexDevice = false;
+		NumActiveCaptureDevices = 0;
+	}
+
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+}
+
+bool CreateDeviceD3D(HWND hWnd)
+{
+	if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
+		return false;
+
+	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
+	g_d3dpp.Windowed = TRUE;
+	g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	g_d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
+	g_d3dpp.EnableAutoDepthStencil = TRUE;
+	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+	if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
+		D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+		return false;
+
+	return true;
+}
+
+void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
+	MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
+
+	MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+}
+
+int InitAudioSystem()
+{
+	ma_resource_manager_config resourceManagerConfig;
+	resourceManagerConfig = ma_resource_manager_config_init();
+	resourceManagerConfig.decodedFormat = ma_format_f32;
+	resourceManagerConfig.decodedChannels = 0;
+	resourceManagerConfig.decodedSampleRate = 48000;
+
+	ma_result result;
+	result = ma_resource_manager_init(&resourceManagerConfig, &ResourceManager);
+	if (result != MA_SUCCESS)
+		return -1;
+
+	result = ma_context_init(NULL, 0, NULL, &Context);
+	if (result != MA_SUCCESS)
+		return -2;
+
+	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount,
+		&pCaptureDeviceInfos, &CaptureDeviceCount);
+	if (result != MA_SUCCESS)
+	{
+		ma_context_uninit(&Context);
+		return -3;
+	}
+
+	PlaybackDeviceSelected = (bool*)malloc(sizeof(bool) * PlaybackDeviceCount);
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		PlaybackDeviceSelected[i] = false;
+	CaptureDeviceSelected = (bool*)malloc(sizeof(bool) * CaptureDeviceCount);
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+
+	return 0;
+}
+
+void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+
+	deviceConfig = ma_device_config_init(ma_device_type_duplex);
+	deviceConfig.capture.pDeviceID = captureId;
+	deviceConfig.capture.format = duplexDevice->playback.format;
+	deviceConfig.capture.channels = duplexDevice->playback.channels;
+	deviceConfig.capture.shareMode = ma_share_mode_shared;
+	deviceConfig.playback.pDeviceID = &duplexDevice->playback.id;
+	deviceConfig.playback.format = duplexDevice->playback.format;
+	deviceConfig.playback.channels = duplexDevice->playback.channels;
+	deviceConfig.dataCallback = DuplexDeviceCallback;
+	deviceConfig.pUserData = &CaptureEngine.engine;
+
+	if (ma_device_init(&Context, &deviceConfig, &CaptureEngine.device) != MA_SUCCESS)
+	{
+		// Handle error
+	}
+
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &CaptureEngine.device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;
+
+	if (ma_engine_init(&engineConfig, &CaptureEngine.engine) != MA_SUCCESS)
+	{
+		ma_device_uninit(&CaptureEngine.device);
+		// Handle error
+	}
+
+	if (ma_engine_start(&CaptureEngine.engine) != MA_SUCCESS)
+	{
+		// Handle error failed to start engine
+	}
+
+	CaptureEngine.active = true;
+}
+
+void InitPlaybackDevice(ma_device_id* deviceId)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+	deviceConfig = ma_device_config_init(ma_device_type_playback);
+	deviceConfig.playback.pDeviceID = deviceId;
+	deviceConfig.playback.format = ResourceManager.config.decodedFormat;
+	deviceConfig.playback.channels = 0;
+	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
+	deviceConfig.dataCallback = AudioCallback;
+	deviceConfig.pUserData = &PlaybackEngines[NumActivePlaybackDevices].engine;
+
+	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[NumActivePlaybackDevices].device);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+
+	/* Now that we have the device we can initialize the engine. The device is passed into the engine's config. */
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;    /* Don't start the engine by default - we'll do that manually below. */
+
+	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+		ma_device_uninit(&PlaybackEngines[NumActivePlaybackDevices].device);
+	}
+
+	result = ma_engine_start(&PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+	PlaybackEngines[NumActivePlaybackDevices].active = true;
+
+	NumActivePlaybackDevices++;
 }
 
 void InitSQLite() {
@@ -143,6 +341,113 @@ void InitSQLite() {
 }
 
 void DrawGUI() {
+	ImGui_ImplDX9_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+	ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(viewport->WorkPos);
+	ImGui::SetNextWindowSize(viewport->WorkSize);
+	ImGui::Begin("Audio", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::Text("Enter full file path with file extension here e.g. 'C:\\Sound.wav'");
+	ImGui::InputText("##", FilePath, (sizeof(char) * MAX_PATH), NULL, NULL, NULL);
+	if (ImGui::Button("Play file") == true)
+	{
+		for (int i = 0; i < NumActivePlaybackDevices; i++)
+		{
+			if (PlaybackEngines[i].active == true)
+			{
+				PlayAudio(i, 0, FilePath);
+			}
+		}
+	}
+
+	ImGui::NewLine();
+	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
+	{
+		if (ImGui::Button("Select Playback Device"))
+			ShowPlaybackDeviceList = true;
+	}
+	else
+	{
+		ShowPlaybackDeviceList = false;
+	}
+
+	if (ShowPlaybackDeviceList)
+		SelectPlaybackDevice();
+
+	if (CaptureEngine.active == false)
+	{
+		if (ImGui::Button("Select Recording Device"))
+			ShowCaptureDeviceList = true;
+	}
+	if (ShowCaptureDeviceList)
+		SelectCaptureDevice();
+
+	ImGui::NewLine();
+	ImGui::BeginTable("Playback Devices", 1);
+	ImGui::TableSetupColumn("Playback Devices");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < PlaybackDeviceCount; i++)
+	{
+		if (PlaybackDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pPlaybackDeviceInfos[i].name);
+		}
+	}
+	ImGui::EndTable();
+	if (NumActivePlaybackDevices > 0)
+	{
+		if (ImGui::Button("Close Playback Devices"))
+			ClosePlaybackDevices();
+	}
+
+	ImGui::BeginTable("Capture Device", 1);
+	ImGui::TableSetupColumn("Capture Device");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < CaptureDeviceCount; i++)
+	{
+		if (CaptureDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pCaptureDeviceInfos[i].name);
+		}
+	}
+	if (NumActiveCaptureDevices > 0)
+	{
+		ImGui::NewLine();
+		ImGui::Text("This device is playing through");
+		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
+	}
+	ImGui::EndTable();
+
+	if (CaptureEngine.active == true)
+	{
+		if (ImGui::Button("Close Capture Device"))
+			CloseCaptureDevice();
+	}
+
+	ImGui::End();
+	ImGui::EndFrame();
+	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+	D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * clear_color.w * 255.0f), (int)(clear_color.y * clear_color.w * 255.0f), (int)(clear_color.z * clear_color.w * 255.0f), (int)(clear_color.w * 255.0f));
+	g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
+	if (g_pd3dDevice->BeginScene() >= 0)
+	{
+		ImGui::Render();
+		ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+		g_pd3dDevice->EndScene();
+	}
+
+	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
+		ResetDeviceD3D();
+
+	/*
 	// ---------- Main window ----------
 	ImGui::Begin("Acoustic Soundboard", NULL, GUIWindowFlags);
 	// ---------- Main table ----------
@@ -249,10 +554,6 @@ void DrawGUI() {
 		//StopAllChannels();
 	}
 	ImGui::Text("Pause | Break");
-	if (ImGui::Button("View Channels") == true) {
-		ViewChannels = true;
-		ImGui::SetNextWindowSize(ImVec2(250, 250));
-	}
 	if (ImGui::Checkbox("Autosave", &Autosave) == true) {
 	}
 	ImGui::End();
@@ -312,12 +613,10 @@ void DrawGUI() {
 
 				if (CapturedKeyInUse == false) {
 					if (CapturedKeyCode != NULL) {
-						Hotkeys[CapturedKeyIndex].key = CapturedKeyCode;
 						Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-						strcpy(Hotkeys[CapturedKeyIndex].keyText, SDL_GetKeyName(CapturedKeyCode));
-						Hotkeys[CapturedKeyIndex].win32Key = ConvertSDLKeyToWin32Key(CapturedKeyCode);
-						if (CapturedKeyMod != NULL) {
-							Hotkeys[CapturedKeyIndex].mod = CapturedKeyMod;
+						strcpy(Hotkeys[CapturedKeyIndex].keyText, CapturedKeyText);
+						Hotkeys[CapturedKeyIndex].win32Key = CapturedKeyCode;
+						if (Win32CapturedKeyMod != NULL) {
 							Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
 							strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
 							Hotkeys[CapturedKeyIndex].win32KeyMod = Win32CapturedKeyMod;
@@ -334,16 +633,13 @@ void DrawGUI() {
 			(ImGui::IsItemFocused() && UserPressedReturn)) {
 			if (UserPressedBackspace) UserPressedBackspace = false;
 			if (UserPressedReturn) UserPressedReturn = false;
-			Hotkeys[CapturedKeyIndex].key = NULL;
 			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
 			Hotkeys[CapturedKeyIndex].win32Key = NULL;
 			Hotkeys[CapturedKeyIndex].win32KeyMod = NULL;
-			Hotkeys[CapturedKeyIndex].mod = NULL;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
 			Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
 			CapturedKeyCode = NULL;
-			CapturedKeyText = NULL;
-			CapturedKeyMod = NULL;
+			CapturedKeyText[0] = '\0';
 			CapturedKeyModText[0] = '\0';
 		}
 		ImGui::End();
@@ -352,8 +648,7 @@ void DrawGUI() {
 
 	else {
 		CapturedKeyCode = NULL;
-		CapturedKeyText = NULL;
-		CapturedKeyMod = NULL;
+		CapturedKeyText[0] = '\0';
 		CapturedKeyModText[0] = '\0';
 	}
 	// ----------END Key Capture Window ----------
@@ -368,34 +663,9 @@ void DrawGUI() {
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
-		CapturedKeyText = NULL;
+		CapturedKeyText[0] = '\0';;
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
-
-	// ---------- Channels Window ----------
-	if (ViewChannels == true) {
-		if (UserPressedEscape == true) {
-			ViewChannels = false;
-		}
-		ImGui::Begin("Channels Playing", &ViewChannels);
-		ImGui::BeginTable("Channels", 2, GUITableFlags);
-		ImGui::TableSetupColumn("Channel", ImGuiTableColumnFlags_WidthFixed);
-		ImGui::TableSetupColumn("File");
-
-		ImGui::TableHeadersRow();
-		for (size_t i = 0; i < NUM_CHANNELS; i++) {
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%d", i);
-			ImGui::TableNextColumn();
-			if (ChannelStates[i].isAvailable == false) {
-				ImGui::Text("Playing %s", ChannelStates[i].playingFileName);
-			}
-		}
-		ImGui::EndTable();
-		ImGui::End();
-
-	} // ----------END Channels Window ----------
 
 	// ---------- Playback Devices Window ----------
 	if (ShowPlaybackDevices == true) {
@@ -403,18 +673,9 @@ void DrawGUI() {
 			ShowPlaybackDevices = false;
 		}
 		ImGui::Begin("Playback Devices", &ShowPlaybackDevices);
-		for (int i = 0; i < NumPlaybackDevices; i++) {
-			ImGui::PushID(i);
-			if (ImGui::Button(PlaybackDevices[i]) == true || UserPressedReturn) {
-				SelectedPlaybackDevice = PlaybackDevices[i];
-				Mix_OpenAudioDevice(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, NUM_CHANNELS, 22050,
-					PlaybackDevices[i], SDL_AUDIO_ALLOW_ANY_CHANGE);
-				ShowPlaybackDevices = false;
-			}
-			ImGui::PopID();
-		}
 		ImGui::End();
 	} // ----------END Playback Devices Window ----------
+	*/
 }
 
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) {
@@ -439,20 +700,77 @@ char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) 
 }
 
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) {
-	if (CaptureKeys == false) {
-		if (nCode >= 0) {
-			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+	// If this code is less than zero, we must pass the message to the next hook
+	if (nCode >= 0)
+	{
+		PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+		// TODO: Instead of calling GetAsyncKeyState we might check the wParam using GetKeyNameText()
+		bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+		bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+		bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
 
-			PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+		// If we are in key capture mode, store the inputs
+		if (CaptureKeys) 
+		{
+			if (shiftDown) {
+				strcpy(CapturedKeyModText, "SHIFT + ");
+				Win32CapturedKeyMod = VK_SHIFT;
+			}
+			else if (ctrlDown) {
+				strcpy(CapturedKeyModText, "CTRL + ");
+				Win32CapturedKeyMod = VK_CONTROL;
+			}
+			else if (altDown) {
+				strcpy(CapturedKeyModText, "ALT + ");
+				Win32CapturedKeyMod = VK_MENU;
+			}
 
+			switch (p->vkCode)
+			{ // These fall through
+			case VK_CONTROL:
+			case VK_SHIFT:
+			case VK_MENU:
+			case VK_UP:
+			case VK_RIGHT:
+			case VK_DOWN:
+			case VK_LEFT:
+				break;
+
+			case VK_RETURN:
+				UserPressedReturn = true;
+				break;
+			case VK_ESCAPE:
+				UserPressedEscape = true;
+				break;
+			case VK_BACK:
+				UserPressedBackspace = true;
+				break;
+			default:
+				CapturedKeyCode = p->vkCode;
+			}
+
+			int returnValue = 0;
+			switch (wParam)
+			{
+			case WM_SYSKEYUP: // Falls through
+			case WM_KEYUP:
+				returnValue = GetKeyNameText(lParam, (LPWSTR)CapturedKeyText, sizeof(char[MAX_PATH]));
+				if (returnValue == 0)
+					PrintToLog("log-error.txt", "GetKeyNameText() failed");
+			default:
+				break;
+			}
+		}
+
+		// Else we are checking for hotkey matches
+		else 
+		{
 			switch (wParam) {
 			case WM_SYSKEYUP:
 			case WM_KEYUP:
 			{
 				if (p->vkCode == VK_PAUSE) {
-					StopAllChannels();
+					//TODO StopAllChannels();
 					break;
 				}
 
@@ -482,7 +800,13 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 						}
 
 						if (hotkeyFound == true) {
-							PlayAudio(Hotkeys[i].sampleIndex);
+							for (int i = 0; i < NumActivePlaybackDevices; i++)
+							{
+								if (PlaybackEngines[i].active == true)
+								{
+									PlayAudio(i, 0, FilePath);
+								}
+							}
 							// Break out of the for loop
 							break;
 						}
@@ -541,31 +865,28 @@ void LoadHotkeysFromDatabase() {
 	sqlite3_close(db);
 }
 
-void PlayAudio(size_t index) {
-	bool sampleFound = true;
-	if (Samples[index] == NULL) {
-		Samples[index] = Mix_LoadWAV(Hotkeys[index].filePath);
-		if (!Samples[index]) {
-			sampleFound = false;
-			OutputDebugStringA("-- DEBUG --\n");
-			OutputDebugStringA(Mix_GetError());
-			OutputDebugStringA("\n-- END DEBUG --\n\n");
-			Hotkeys[index].filePath[0] = '\0';
-			strcpy(Hotkeys[index].fileName, "File not found!");
+void PlayAudio(int iEngine, int iSound, const char* filePath)
+{
+	if (SoundLoaded[iEngine][iSound] == false)
+	{
+		ma_uint32 flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE |
+			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC |
+			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
+
+		ma_result result = ma_sound_init_from_file(&PlaybackEngines[iEngine].engine,
+			filePath, flags, NULL, NULL, &PlaybackEngines[iEngine].sounds[iSound]);
+
+		if (result != MA_SUCCESS)
+		{
+			// Handle error
 		}
+
+		SoundLoaded[iEngine][iSound] = true;
 	}
 
-	if (sampleFound == true) {
-		ChannelLastUsed = Mix_PlayChannel(-1, Samples[index], 0);
-		if (ChannelLastUsed > NUM_CHANNELS || ChannelLastUsed < 0) {
-			OutputDebugStringA(Mix_GetError());
-		}
-		else {
-			if (ChannelLastUsed >= 0 && ChannelLastUsed < NUM_CHANNELS) {
-				strcpy(ChannelStates[ChannelLastUsed].playingFileName, Hotkeys[index].fileName);
-				ChannelStates[ChannelLastUsed].isAvailable = false;
-			}
-		}
+	if (ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]) != MA_SUCCESS)
+	{
+		// Handle error failed to start sound
 	}
 }
 
@@ -581,57 +902,13 @@ void PrintToLog(const char* fileName, const char* logText) {
 	}
 }
 
-void ProcessUserInput() {
-	// If we are in key capture mode, let SDL handle the inputs
-	if (CaptureKeys) {
-		if (Event.key.keysym.sym != SDLK_LCTRL &&
-			Event.key.keysym.sym != SDLK_RCTRL &&
-			Event.key.keysym.sym != SDLK_LSHIFT &&
-			Event.key.keysym.sym != SDLK_RSHIFT &&
-			Event.key.keysym.sym != SDLK_LALT &&
-			Event.key.keysym.sym != SDLK_RALT &&
-			Event.key.keysym.sym != SDLK_RETURN &&
-			Event.key.keysym.sym != SDLK_ESCAPE &&
-			Event.key.keysym.sym != SDLK_BACKSPACE &&
-			Event.key.keysym.sym != SDLK_UP &&
-			Event.key.keysym.sym != SDLK_RIGHT &&
-			Event.key.keysym.sym != SDLK_DOWN &&
-			Event.key.keysym.sym != SDLK_LEFT) {
-			CapturedKeyCode = Event.key.keysym.sym;
-			CapturedKeyText = SDL_GetKeyName(Event.key.keysym.sym);
-		}
-
-		if (Event.key.keysym.mod != NULL) {
-			if (Event.key.keysym.mod & KMOD_CTRL) {
-				CapturedKeyMod = KMOD_CTRL;
-				strcpy(CapturedKeyModText, "CTRL + ");
-				Win32CapturedKeyMod = VK_CONTROL;
-			}
-			else if (Event.key.keysym.mod & KMOD_SHIFT) {
-				CapturedKeyMod = KMOD_SHIFT;
-				strcpy(CapturedKeyModText, "SHIFT + ");
-				Win32CapturedKeyMod = VK_SHIFT;
-			}
-			else if (Event.key.keysym.mod & KMOD_ALT) {
-				CapturedKeyMod = KMOD_ALT;
-				strcpy(CapturedKeyModText, "ALT + ");
-				Win32CapturedKeyMod = VK_MENU;
-			}
-		}
-	}
-
-	switch (Event.key.keysym.sym) {
-	case SDLK_RETURN:
-		UserPressedReturn = true;
-		break;
-	case SDLK_ESCAPE:
-		UserPressedEscape = true;
-		break;
-	case SDLK_BACKSPACE:
-		UserPressedBackspace = true;
-	default:
-		break;
-	}
+void ResetDeviceD3D()
+{
+	ImGui_ImplDX9_InvalidateDeviceObjects();
+	HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
+	if (hr == D3DERR_INVALIDCALL)
+		IM_ASSERT(0);
+	ImGui_ImplDX9_CreateDeviceObjects();
 }
 
 void ResetNavKeys() {
@@ -710,46 +987,86 @@ void SaveHotkeysToDatabase() {
 	sqlite3_close(db);
 }
 
-void Update() {
-	while (SDL_PollEvent(&Event)) {
-		ImGui_ImplSDL2_ProcessEvent(&Event);
-		switch (Event.type) {
-		case SDL_QUIT: WindowShouldClose = true;
-			break;
-		case SDL_KEYUP: ProcessUserInput();
-			break;
-		default:
-			break;
+void SelectCaptureDevice()
+{
+	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
+	if (SelectDuplexDevice == false)
+	{
+		ImGui::Text("First, select a recording device.\nThis is usually your microphone.");
+		ImGui::NewLine();
+
+		for (int i = 0; i < CaptureDeviceCount; i++)
+		{
+			if (CaptureDeviceSelected[i] == false)
+			{
+				ImGui::PushID(i);
+				if (ImGui::Button(pCaptureDeviceInfos[i].name))
+				{
+					CaptureDeviceSelected[i] = true;
+					InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
+					SelectDuplexDevice = true;
+				}
+				ImGui::PopID();
+			}
 		}
 	}
 
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplSDL2_NewFrame();
-	ImGui::NewFrame();
-	GUIviewport = ImGui::GetMainViewport();
-	ImGui::SetNextWindowPos(GUIviewport->WorkPos);
-	ImGui::SetNextWindowSize(GUIviewport->WorkSize);
-	DrawGUI();
-	ResetNavKeys();
-	ImGui::Render();
-	glViewport(0, 0, GUIviewport->Size.x, GUIviewport->Size.y);
-	glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-	glClear(GL_COLOR_BUFFER_BIT);
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-	SDL_GL_SwapWindow(Window);
+	else
+	{
+		ImGui::Text("Now, select where this recording device should play through.\nThis is usually a virtual cable input.");
+		ImGui::NewLine();
+
+		if (NumActivePlaybackDevices == 0)
+		{
+			if (ImGui::Button("Select Playback Device"))
+				ShowPlaybackDeviceList = true;
+		}
+
+		for (int i = 0; i < NumActivePlaybackDevices; i++)
+		{
+			ImGui::PushID(i);
+			if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
+			{
+				DuplexDeviceIndex = i;
+				SelectDuplexDevice = false;
+				NumActiveCaptureDevices++;
+				ShowCaptureDeviceList = false;
+			}
+			ImGui::PopID();
+		}
+	}
+
+	ImGui::End();
 }
 
-void Close() {
-	if (Autosave == true) {
-		SaveHotkeysToDatabase();
+void SelectPlaybackDevice()
+{
+	ImGui::Begin("Select Playback Device (max 2)", &ShowPlaybackDeviceList);
+	for (int i = 0; i < PlaybackDeviceCount; i += 1)
+	{
+		if (PlaybackDeviceSelected[i] == false)
+		{
+			ImGui::PushID(i);
+			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
+			{
+				PlaybackDeviceSelected[i] = true;
+				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+			}
+			ImGui::PopID();
+		}
+
 	}
-	Mix_CloseAudio();
-	Mix_Quit();
-	free(PlaybackDevices);
-	ImGui_ImplOpenGL3_Shutdown();
-	ImGui_ImplSDL2_Shutdown();
-	ImGui::DestroyContext();
-	SDL_GL_DeleteContext(GLContext);
-	SDL_DestroyWindow(Window);
-	SDL_Quit();
+	ImGui::End();
+}
+
+void Update() {
+	MSG msg;
+	while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	DrawGUI();
+	ResetNavKeys();
 }

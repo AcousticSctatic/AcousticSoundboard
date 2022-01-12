@@ -23,8 +23,6 @@
 #define MAX_SOUNDS 50
 
 typedef struct Hotkey {
-	//SDL_Keycode key;
-	//Uint16 mod;
 	int win32KeyMod;
 	int win32Key;
 	char keyText[MAX_PATH];
@@ -77,25 +75,18 @@ bool ShowCaptureDeviceList = false;
 #define NUM_SOUNDS SOUNDS_PER_PAGE * NUM_PAGES
 bool Autosave = true;
 sqlite3* db;
-ImFont* MainFont;
-ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 const ImGuiViewport* GUIviewport;
 ImGuiWindowFlags GUIWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus
 	| ImGuiWindowFlags_NoResize;
 ImGuiTableFlags GUITableFlags = ImGuiTableFlags_Borders;
 HHOOK KeyboardHook;
 int win32LastKey;
-bool WindowShouldClose = false;
 bool CaptureKeys = false;
 size_t CurrentPage;
-char** PlaybackDevices;
-const char* SelectedPlaybackDevice;
-int NumPlaybackDevices = 0;
-bool ViewChannels = false;
 bool ShowKeyCaptureWindow;
 bool ShowPlaybackDevices;
-const char* CapturedKeyText;
-//Uint16 CapturedKeyMod;
+char CapturedKeyText[MAX_PATH];
+DWORD CapturedKeyCode;
 int Win32CapturedKeyMod;
 char CapturedKeyModText[MAX_PATH];
 bool CapturedKeyInUse = false;
@@ -104,7 +95,6 @@ int CapturedKeyIndex = 0;
 bool UserPressedReturn = false;
 bool UserPressedEscape = false;
 bool UserPressedBackspace = false;
-
 
 void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
@@ -123,16 +113,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT WINAPI Win32Callback(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-void Initialize();
 void InitSQLite();
 void DrawGUI();
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource);
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
 void LoadHotkeysFromDatabase();
 void PrintToLog(const char* fileName, const char* logText);
-void ProcessUserInput();
 void ResetNavKeys();
 void SaveHotkeysToDatabase();
 void Update();
-void Close();
 

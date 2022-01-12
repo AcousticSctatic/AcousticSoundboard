@@ -168,8 +168,8 @@ xcopy /d /y "$(OutDir)\*.exe" "$(OutDir)\Deploy\"</Command>
     <ClCompile Include="src\AcousticSoundboard.cpp" />
     <ClCompile Include="src\imgui.cpp" />
     <ClCompile Include="src\imgui_draw.cpp" />
-    <ClCompile Include="src\imgui_impl_opengl3.cpp" />
-    <ClCompile Include="src\imgui_impl_sdl.cpp" />
+    <ClCompile Include="src\imgui_impl_dx9.cpp" />
+    <ClCompile Include="src\imgui_impl_win32.cpp" />
     <ClCompile Include="src\imgui_tables.cpp" />
     <ClCompile Include="src\imgui_widgets.cpp" />
     <ClCompile Include="src\tinyfiledialogs.c" />
