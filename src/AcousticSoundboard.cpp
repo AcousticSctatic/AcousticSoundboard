@@ -197,13 +197,7 @@ void DrawGUI() {
 	ImGui::InputText("##", FilePath, (sizeof(char) * MAX_PATH), NULL, NULL, NULL);
 	if (ImGui::Button("Play file") == true)
 	{
-		for (int i = 0; i < NumActivePlaybackDevices; i++)
-		{
-			if (PlaybackEngines[i].active == true)
-			{
-				PlayAudio(i, 0, FilePath);
-			}
-		}
+
 	}
 
 	ImGui::NewLine();
@@ -274,27 +268,7 @@ void DrawGUI() {
 			CloseCaptureDevice();
 	}
 
-	ImGui::End();
-	ImGui::EndFrame();
-	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
-	g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-	g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-	D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * clear_color.w * 255.0f), (int)(clear_color.y * clear_color.w * 255.0f), (int)(clear_color.z * clear_color.w * 255.0f), (int)(clear_color.w * 255.0f));
-	g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
-	if (g_pd3dDevice->BeginScene() >= 0)
-	{
-		ImGui::Render();
-		ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-		g_pd3dDevice->EndScene();
-	}
 
-	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
-	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
-		ResetDeviceD3D();
-
-	/*
-	// ---------- Main window ----------
-	ImGui::Begin("Acoustic Soundboard", NULL, GUIWindowFlags);
 	// ---------- Main table ----------
 	ImGui::BeginTable("Sounds", 3, GUITableFlags);
 	ImGui::TableSetupColumn(" #  Hotkey", ImGuiTableColumnFlags_WidthFixed);
@@ -394,15 +368,12 @@ void DrawGUI() {
 	if (ImGui::Button("Playback Devices") == true) {
 		ShowPlaybackDevices = true;
 	}
-	ImGui::Text("%s", SelectedPlaybackDevice);
 	if (ImGui::Button("Stop All Sounds") == true) {
 		//StopAllChannels();
 	}
 	ImGui::Text("Pause | Break");
 	if (ImGui::Checkbox("Autosave", &Autosave) == true) {
 	}
-	ImGui::End();
-	// ---------- END Main window ----------
 
 	// ---------- Key Capture Window ----------
 	if (ShowKeyCaptureWindow == true) {
@@ -520,7 +491,26 @@ void DrawGUI() {
 		ImGui::Begin("Playback Devices", &ShowPlaybackDevices);
 		ImGui::End();
 	} // ----------END Playback Devices Window ----------
-	*/
+
+	ImGui::End(); // End main window
+	ImGui::EndFrame();
+	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+	D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * clear_color.w * 255.0f), (int)(clear_color.y * clear_color.w * 255.0f), (int)(clear_color.z * clear_color.w * 255.0f), (int)(clear_color.w * 255.0f));
+	g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
+	if (g_pd3dDevice->BeginScene() >= 0)
+	{
+		ImGui::Render();
+		ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+		g_pd3dDevice->EndScene();
+	}
+
+	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
+		ResetDeviceD3D();
+
+
 }
 
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -800,15 +790,15 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 						}
 
 						if (hotkeyFound == true) {
-							for (int i = 0; i < NumActivePlaybackDevices; i++)
+							for (int j = 0; j < NumActivePlaybackDevices; j++)
 							{
-								if (PlaybackEngines[i].active == true)
+								if (PlaybackEngines[j].active == true)
 								{
-									PlayAudio(i, 0, FilePath);
+									PlayAudio(j, 0, Hotkeys[i].filePath);
 								}
 							}
-							// Break out of the for loop
-							break;
+							
+							break; // Break out of the for loop
 						}
 					}
 				}
