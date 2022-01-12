@@ -123,6 +123,21 @@ void CloseAudioSystem()
 	ma_resource_manager_uninit(&ResourceManager);
 }
 
+void CloseCaptureDevice()
+{
+	if (CaptureEngine.active == true)
+	{
+		ma_engine_uninit(&CaptureEngine.engine);
+		ma_device_uninit(&CaptureEngine.device);
+		CaptureEngine.active = false;
+		SelectDuplexDevice = false;
+		NumActiveCaptureDevices = 0;
+	}
+
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+}
+
 void ClosePlaybackDevices()
 {
 	for (int i = 0; i < NumActivePlaybackDevices; i++)
@@ -151,21 +166,6 @@ void ClosePlaybackDevices()
 	NumActivePlaybackDevices = 0;
 }
 
-void CloseCaptureDevice()
-{
-	if (CaptureEngine.active == true)
-	{
-		ma_engine_uninit(&CaptureEngine.engine);
-		ma_device_uninit(&CaptureEngine.device);
-		CaptureEngine.active = false;
-		SelectDuplexDevice = false;
-		NumActiveCaptureDevices = 0;
-	}
-
-	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-		CaptureDeviceSelected[i] = false;
-}
-
 bool CreateDeviceD3D(HWND hWnd)
 {
 	if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
@@ -183,161 +183,6 @@ bool CreateDeviceD3D(HWND hWnd)
 		return false;
 
 	return true;
-}
-
-void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
-{
-	MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
-	MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
-
-	MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-}
-
-int InitAudioSystem()
-{
-	ma_resource_manager_config resourceManagerConfig;
-	resourceManagerConfig = ma_resource_manager_config_init();
-	resourceManagerConfig.decodedFormat = ma_format_f32;
-	resourceManagerConfig.decodedChannels = 0;
-	resourceManagerConfig.decodedSampleRate = 48000;
-
-	ma_result result;
-	result = ma_resource_manager_init(&resourceManagerConfig, &ResourceManager);
-	if (result != MA_SUCCESS)
-		return -1;
-
-	result = ma_context_init(NULL, 0, NULL, &Context);
-	if (result != MA_SUCCESS)
-		return -2;
-
-	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount,
-		&pCaptureDeviceInfos, &CaptureDeviceCount);
-	if (result != MA_SUCCESS)
-	{
-		ma_context_uninit(&Context);
-		return -3;
-	}
-
-	PlaybackDeviceSelected = (bool*)malloc(sizeof(bool) * PlaybackDeviceCount);
-	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
-		PlaybackDeviceSelected[i] = false;
-	CaptureDeviceSelected = (bool*)malloc(sizeof(bool) * CaptureDeviceCount);
-	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-		CaptureDeviceSelected[i] = false;
-
-	return 0;
-}
-
-void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
-{
-	ma_device_config deviceConfig;
-	ma_engine_config engineConfig;
-
-	deviceConfig = ma_device_config_init(ma_device_type_duplex);
-	deviceConfig.capture.pDeviceID = captureId;
-	deviceConfig.capture.format = duplexDevice->playback.format;
-	deviceConfig.capture.channels = duplexDevice->playback.channels;
-	deviceConfig.capture.shareMode = ma_share_mode_shared;
-	deviceConfig.playback.pDeviceID = &duplexDevice->playback.id;
-	deviceConfig.playback.format = duplexDevice->playback.format;
-	deviceConfig.playback.channels = duplexDevice->playback.channels;
-	deviceConfig.dataCallback = DuplexDeviceCallback;
-	deviceConfig.pUserData = &CaptureEngine.engine;
-
-	if (ma_device_init(&Context, &deviceConfig, &CaptureEngine.device) != MA_SUCCESS)
-	{
-		// Handle error
-	}
-
-	engineConfig = ma_engine_config_init();
-	engineConfig.pDevice = &CaptureEngine.device;
-	engineConfig.pResourceManager = &ResourceManager;
-	engineConfig.noAutoStart = MA_TRUE;
-
-	if (ma_engine_init(&engineConfig, &CaptureEngine.engine) != MA_SUCCESS)
-	{
-		ma_device_uninit(&CaptureEngine.device);
-		// Handle error
-	}
-
-	if (ma_engine_start(&CaptureEngine.engine) != MA_SUCCESS)
-	{
-		// Handle error failed to start engine
-	}
-
-	CaptureEngine.active = true;
-}
-
-void InitPlaybackDevice(ma_device_id* deviceId)
-{
-	ma_device_config deviceConfig;
-	ma_engine_config engineConfig;
-	deviceConfig = ma_device_config_init(ma_device_type_playback);
-	deviceConfig.playback.pDeviceID = deviceId;
-	deviceConfig.playback.format = ResourceManager.config.decodedFormat;
-	deviceConfig.playback.channels = 0;
-	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
-	deviceConfig.dataCallback = AudioCallback;
-	deviceConfig.pUserData = &PlaybackEngines[NumActivePlaybackDevices].engine;
-
-	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[NumActivePlaybackDevices].device);
-	if (result != MA_SUCCESS) {
-		// Handle error
-	}
-
-	/* Now that we have the device we can initialize the engine. The device is passed into the engine's config. */
-	engineConfig = ma_engine_config_init();
-	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
-	engineConfig.pResourceManager = &ResourceManager;
-	engineConfig.noAutoStart = MA_TRUE;    /* Don't start the engine by default - we'll do that manually below. */
-
-	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
-	if (result != MA_SUCCESS) {
-		// Handle error
-		ma_device_uninit(&PlaybackEngines[NumActivePlaybackDevices].device);
-	}
-
-	result = ma_engine_start(&PlaybackEngines[NumActivePlaybackDevices].engine);
-	if (result != MA_SUCCESS) {
-		// Handle error
-	}
-	PlaybackEngines[NumActivePlaybackDevices].active = true;
-
-	NumActivePlaybackDevices++;
-}
-
-void InitSQLite() {
-	char* zErrMsg = 0;
-	int rc;
-	const char* sql_statement =
-		"CREATE TABLE IF NOT EXISTS HOTKEYS (SAMPLE_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, FILE_PATH TEXT, FILE_NAME TEXT);";
-	sqlite3_stmt* prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
-
-	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
-		sqlite3_close(db);
-	}
-
-	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
-	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
-	}
-
-	rc = sqlite3_step(prepared_statement);
-	if (rc != SQLITE_DONE) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
-	}
-
-	rc = sqlite3_finalize(prepared_statement);
-	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
-	}
-
-	sqlite3_close(db);
 }
 
 void DrawGUI() {
@@ -579,7 +424,7 @@ void DrawGUI() {
 
 		if (ImGui::Button("Set") == true || UserPressedReturn) {
 			if (ImGui::IsItemFocused() && CapturedKeyText == NULL) {
-				if (UserPressedReturn) 
+				if (UserPressedReturn)
 					UserPressedReturn = false;
 
 				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
@@ -678,6 +523,14 @@ void DrawGUI() {
 	*/
 }
 
+void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
+	MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
+
+	MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+}
+
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) {
 	/* copy the last name after '/' or '\' */
 	char const* lTmp;
@@ -697,6 +550,153 @@ char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) 
 		*aoDestination = '\0';
 	}
 	return aoDestination;
+}
+
+int InitAudioSystem()
+{
+	ma_resource_manager_config resourceManagerConfig;
+	resourceManagerConfig = ma_resource_manager_config_init();
+	resourceManagerConfig.decodedFormat = ma_format_f32;
+	resourceManagerConfig.decodedChannels = 0;
+	resourceManagerConfig.decodedSampleRate = 48000;
+
+	ma_result result;
+	result = ma_resource_manager_init(&resourceManagerConfig, &ResourceManager);
+	if (result != MA_SUCCESS)
+		return -1;
+
+	result = ma_context_init(NULL, 0, NULL, &Context);
+	if (result != MA_SUCCESS)
+		return -2;
+
+	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount,
+		&pCaptureDeviceInfos, &CaptureDeviceCount);
+	if (result != MA_SUCCESS)
+	{
+		ma_context_uninit(&Context);
+		return -3;
+	}
+
+	PlaybackDeviceSelected = (bool*)malloc(sizeof(bool) * PlaybackDeviceCount);
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		PlaybackDeviceSelected[i] = false;
+	CaptureDeviceSelected = (bool*)malloc(sizeof(bool) * CaptureDeviceCount);
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+
+	return 0;
+}
+
+void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+
+	deviceConfig = ma_device_config_init(ma_device_type_duplex);
+	deviceConfig.capture.pDeviceID = captureId;
+	deviceConfig.capture.format = duplexDevice->playback.format;
+	deviceConfig.capture.channels = duplexDevice->playback.channels;
+	deviceConfig.capture.shareMode = ma_share_mode_shared;
+	deviceConfig.playback.pDeviceID = &duplexDevice->playback.id;
+	deviceConfig.playback.format = duplexDevice->playback.format;
+	deviceConfig.playback.channels = duplexDevice->playback.channels;
+	deviceConfig.dataCallback = DuplexDeviceCallback;
+	deviceConfig.pUserData = &CaptureEngine.engine;
+
+	if (ma_device_init(&Context, &deviceConfig, &CaptureEngine.device) != MA_SUCCESS)
+	{
+		// Handle error
+	}
+
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &CaptureEngine.device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;
+
+	if (ma_engine_init(&engineConfig, &CaptureEngine.engine) != MA_SUCCESS)
+	{
+		ma_device_uninit(&CaptureEngine.device);
+		// Handle error
+	}
+
+	if (ma_engine_start(&CaptureEngine.engine) != MA_SUCCESS)
+	{
+		// Handle error failed to start engine
+	}
+
+	CaptureEngine.active = true;
+}
+
+void InitPlaybackDevice(ma_device_id* deviceId)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+	deviceConfig = ma_device_config_init(ma_device_type_playback);
+	deviceConfig.playback.pDeviceID = deviceId;
+	deviceConfig.playback.format = ResourceManager.config.decodedFormat;
+	deviceConfig.playback.channels = 0;
+	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
+	deviceConfig.dataCallback = AudioCallback;
+	deviceConfig.pUserData = &PlaybackEngines[NumActivePlaybackDevices].engine;
+
+	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[NumActivePlaybackDevices].device);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+
+	/* Now that we have the device we can initialize the engine. The device is passed into the engine's config. */
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;    /* Don't start the engine by default - we'll do that manually below. */
+
+	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+		ma_device_uninit(&PlaybackEngines[NumActivePlaybackDevices].device);
+	}
+
+	result = ma_engine_start(&PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+	PlaybackEngines[NumActivePlaybackDevices].active = true;
+
+	NumActivePlaybackDevices++;
+}
+
+void InitSQLite() {
+	char* zErrMsg = 0;
+	int rc;
+	const char* sql_statement =
+		"CREATE TABLE IF NOT EXISTS HOTKEYS (SAMPLE_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, FILE_PATH TEXT, FILE_NAME TEXT);";
+	sqlite3_stmt* prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		sqlite3_close(db);
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	sqlite3_close(db);
 }
 
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) {
