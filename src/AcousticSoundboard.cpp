@@ -12,6 +12,71 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
+int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
+{
+	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, Win32Callback, 0L, 0L,
+		GetModuleHandle(NULL), NULL, NULL, NULL, NULL, (L"AcousticSoundboard Prototype"), NULL };
+	RegisterClassEx(&wc);
+	HWND hwnd = CreateWindow(wc.lpszClassName, (L"AcousticSoundboard MiniAudio Prototype"),
+		WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
+
+	if (!CreateDeviceD3D(hwnd))
+		return 1;
+
+	if (InitAudioSystem() < 0) {
+		// Handle error
+	}
+
+	ShowWindow(hwnd, SW_SHOWDEFAULT);
+	UpdateWindow(hwnd);
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX9_Init(g_pd3dDevice);
+	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
+
+	while (WindowShouldClose == false) {
+		Update();
+	}
+
+	ImGui_ImplDX9_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+	CloseAudioSystem();
+	DestroyWindow(hwnd);
+	UnregisterClass(wc.lpszClassName, wc.hInstance);
+	return 0;
+}
+
+LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
+		return true;
+
+	switch (message)
+	{
+	case WM_SIZE:
+		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+		{
+			g_d3dpp.BackBufferWidth = LOWORD(lParam);
+			g_d3dpp.BackBufferHeight = HIWORD(lParam);
+			ResetDeviceD3D();
+		}
+		break;
+	case WM_CLOSE:
+		PostQuitMessage(0);
+		WindowShouldClose = true;
+		break;
+	default:
+		return DefWindowProc(hWnd, message, wParam, lParam);
+	}
+	return 0;
+}
+
+
 void Initialize() {
 	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
 
@@ -22,53 +87,22 @@ void Initialize() {
 	// Initialize hotkeys indices
 	for (int i = 0; i < NUM_SOUNDS; i++) {
 		Hotkeys[i].sampleIndex = i;
-		Samples[i] = NULL;
 	}
 
-	SDL_Init(SDL_INIT_EVERYTHING);
-	// GL 3.0 + GLSL 130
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-	Window = SDL_CreateWindow("Acoustic Soundboard", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720,
-		SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI);
-
-	GLContext = SDL_GL_CreateContext(Window);
-	SDL_GL_MakeCurrent(Window, GLContext);
-	SDL_GL_SetSwapInterval(1); // Enable vsync
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
 	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
-	ImGui_ImplSDL2_InitForOpenGL(Window, GLContext);
-	const char* glsl_version = "#version 130";
-	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	CurrentPage = 1;
 
+	/*
 	for (size_t i = 0; i < NUM_CHANNELS; i++) {
 		ChannelStates[i].isAvailable = true;
 	}
-
-	Mix_Init(0);
-	Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, NUM_CHANNELS, 4096);
-	size_t channelsAllocated = Mix_AllocateChannels(NUM_CHANNELS);
-	channelFinished = &ResetChannel;
-	Mix_ChannelFinished(channelFinished);
-	NumPlaybackDevices = SDL_GetNumAudioDevices(0);
-	PlaybackDevices = (char**)malloc(sizeof(char*) * NumPlaybackDevices);
-	if (PlaybackDevices != NULL) {
-		for (int i = 0; i < NumPlaybackDevices; i++) {
-			PlaybackDevices[i] = _strdup(SDL_GetAudioDeviceName(i, 0));
-		}
-		SelectedPlaybackDevice = PlaybackDevices[0];
-	}
+	*/
 
 	InitSQLite();
 	LoadHotkeysFromDatabase();
@@ -106,234 +140,6 @@ void InitSQLite() {
 	}
 
 	sqlite3_close(db);
-}
-
-int ConvertSDLKeyToWin32Key(SDL_Keycode SDLK) {
-	int vkey;
-	switch (SDLK) {
-	case SDLK_F1:
-		vkey = VK_F1;
-		break;
-	case SDLK_F2:
-		vkey = VK_F2;
-		break;
-	case SDLK_F3:
-		vkey = VK_F3;
-		break;
-	case SDLK_F4:
-		vkey = VK_F4;
-		break;
-	case SDLK_F5:
-		vkey = VK_F5;
-		break;
-	case SDLK_F6:
-		vkey = VK_F6;
-		break;
-	case SDLK_F7:
-		vkey = VK_F7;
-		break;
-	case SDLK_F8:
-		vkey = VK_F8;
-		break;
-	case SDLK_F9:
-		vkey = VK_F9;
-		break;
-	case SDLK_F10:
-		vkey = VK_F10;
-		break;
-	case SDLK_F11:
-		vkey = VK_F11;
-		break;
-	case SDLK_F12:
-		vkey = VK_F12;
-		break;
-	case SDLK_BACKQUOTE:
-		vkey = VK_OEM_3;
-		break;
-	case SDLK_q:
-		vkey = 'Q';
-		break;
-	case SDLK_w:
-		vkey = 'W';
-		break;
-	case SDLK_e:
-		vkey = 'E';
-		break;
-	case SDLK_r:
-		vkey = 'R';
-		break;
-	case SDLK_t:
-		vkey = 'T';
-		break;
-	case SDLK_y:
-		vkey = 'Y';
-		break;
-	case SDLK_u:
-		vkey = 'U';
-		break;
-	case SDLK_i:
-		vkey = 'I';
-		break;
-	case SDLK_o:
-		vkey = 'O';
-		break;
-	case SDLK_p:
-		vkey = 'P';
-		break;
-	case SDLK_a:
-		vkey = 'A';
-		break;
-	case SDLK_s:
-		vkey = 'S';
-		break;
-	case SDLK_d:
-		vkey = 'D';
-		break;
-	case SDLK_f:
-		vkey = 'F';
-		break;
-	case SDLK_g:
-		vkey = 'G';
-		break;
-	case SDLK_h:
-		vkey = 'H';
-		break;
-	case SDLK_j:
-		vkey = 'J';
-		break;
-	case SDLK_k:
-		vkey = 'K';
-		break;
-	case SDLK_l:
-		vkey = 'L';
-		break;
-	case SDLK_z:
-		vkey = 'Z';
-		break;
-	case SDLK_x:
-		vkey = 'X';
-		break;
-	case SDLK_c:
-		vkey = 'C';
-		break;
-	case SDLK_v:
-		vkey = 'V';
-		break;
-	case SDLK_b:
-		vkey = 'B';
-		break;
-	case SDLK_n:
-		vkey = 'N';
-		break;
-	case SDLK_m:
-		vkey = 'M';
-		break;
-	case SDLK_MINUS:
-		vkey = VK_SUBTRACT;
-		break;
-	case SDLK_PLUS:
-		vkey = VK_ADD;
-		break;
-	case SDLK_LEFTBRACKET:
-		vkey = VK_OEM_4; //  '[{' for US
-		break;
-	case SDLK_RIGHTBRACKET:
-		vkey = 0xDD; //  ']}' for US
-		break;
-	case SDLK_BACKSLASH:
-		vkey = 0xDC; //  '\|' for US
-		break;
-	case SDLK_COLON:
-		vkey = VK_OEM_1; // ';:' for US
-		break;
-	case SDLK_QUOTE:
-		vkey = VK_OEM_7; //  ''"' for US
-		break;
-	case SDLK_COMMA:
-		vkey = VK_OEM_COMMA; // ',' any country
-		break;
-	case SDLK_PERIOD:
-		vkey = VK_OEM_PERIOD; // '.' any country
-		break;
-	case SDLK_SLASH:
-		vkey = VK_OEM_2; // '/?' for US
-		break;
-	case SDLK_INSERT:
-		vkey = VK_INSERT;
-		break;
-	case SDLK_HOME:
-		vkey = VK_HOME;
-		break;
-	case SDLK_PAGEUP:
-		vkey = VK_PRIOR;
-		break;
-	case SDLK_DELETE:
-		vkey = VK_DELETE;
-		break;
-	case SDLK_END:
-		vkey = VK_END;
-		break;
-	case SDLK_PAGEDOWN:
-		vkey = VK_NEXT;
-		break;
-	case SDLK_KP_7:
-		vkey = VK_NUMPAD7;
-		break;
-	case SDLK_KP_8:
-		vkey = VK_NUMPAD8;
-		break;
-	case SDLK_KP_9:
-		vkey = VK_NUMPAD9;
-		break;
-	case SDLK_KP_4:
-		vkey = VK_NUMPAD4;
-		break;
-	case SDLK_KP_5:
-		vkey = VK_NUMPAD5;
-		break;
-	case SDLK_KP_6:
-		vkey = VK_NUMPAD6;
-		break;
-	case SDLK_KP_1:
-		vkey = VK_NUMPAD1;
-		break;
-	case SDLK_KP_2:
-		vkey = VK_NUMPAD2;
-		break;
-	case SDLK_KP_3:
-		vkey = VK_NUMPAD3;
-		break;
-	case SDLK_KP_DIVIDE:
-		vkey = VK_DIVIDE;
-		break;
-	case SDLK_KP_MULTIPLY:
-		vkey = VK_MULTIPLY;
-		break;
-	case SDLK_KP_MINUS:
-		vkey = VK_SUBTRACT;
-		break;
-	case SDLK_KP_PLUS:
-		vkey = VK_ADD;
-		break;
-	case SDLK_KP_DECIMAL:
-		vkey = VK_DECIMAL;
-		break;
-	case SDLK_UP:
-		vkey = VK_UP;
-		break;
-	case SDLK_LEFT:
-		vkey = VK_LEFT;
-		break;
-	case SDLK_DOWN:
-		vkey = VK_DOWN;
-		break;
-	case SDLK_RIGHT:
-		vkey = VK_RIGHT;
-		break;
-	default: vkey = SDLK;
-		break;
-	}
-	return vkey;
 }
 
 void DrawGUI() {
@@ -394,7 +200,7 @@ void DrawGUI() {
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
 		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			StopAllChannels();
+			//StopAllChannels();
 			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
 			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
 			if (AudioFilePath != NULL) {
@@ -412,7 +218,7 @@ void DrawGUI() {
 				Hotkeys[i].fileName[0] = '\0';
 				Hotkeys[i].filePath[0] = '\0';
 			}
-			StopAllChannels();
+			//StopAllChannels();
 		}
 		ImGui::PopID();
 	}
@@ -440,7 +246,7 @@ void DrawGUI() {
 	}
 	ImGui::Text("%s", SelectedPlaybackDevice);
 	if (ImGui::Button("Stop All Sounds") == true) {
-		StopAllChannels();
+		//StopAllChannels();
 	}
 	ImGui::Text("Pause | Break");
 	if (ImGui::Button("View Channels") == true) {
@@ -472,10 +278,10 @@ void DrawGUI() {
 
 		if (ImGui::Button("Set") == true || UserPressedReturn) {
 			if (ImGui::IsItemFocused() && CapturedKeyText == NULL) {
-				if (UserPressedReturn) UserPressedReturn = false;
-				Hotkeys[CapturedKeyIndex].key = NULL;
+				if (UserPressedReturn) 
+					UserPressedReturn = false;
+
 				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].mod = NULL;
 				Hotkeys[CapturedKeyIndex].modText[0] = '\0';
 				Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
 				CaptureKeys = false;
@@ -828,11 +634,6 @@ void ProcessUserInput() {
 	}
 }
 
-void ResetChannel(int channel) {
-	ChannelStates[channel].isAvailable = true;
-	ChannelStates[channel].playingFileName[0] = '\0';
-}
-
 void ResetNavKeys() {
 	UserPressedEscape = false;
 	UserPressedReturn = false;
@@ -907,20 +708,6 @@ void SaveHotkeysToDatabase() {
 	}
 
 	sqlite3_close(db);
-}
-
-void StopAllChannels() {
-	for (int i = 0; i < NUM_CHANNELS; i++) {
-		Mix_HaltChannel(i);
-		ChannelStates[i].isAvailable = true;
-		ChannelStates[i].playingFileName[0] = '\0';
-	}
-	for (int i = 0; i < NUM_SOUNDS; i++) {
-		if (Samples[i] != NULL) {
-			Mix_FreeChunk(Samples[i]);
-			Samples[i] = NULL;
-		}
-	}
 }
 
 void Update() {
