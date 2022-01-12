@@ -3,9 +3,9 @@
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
 {
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, Win32Callback, 0L, 0L,
-		GetModuleHandle(NULL), NULL, NULL, NULL, NULL, (L"AcousticSoundboard Prototype"), NULL };
+		GetModuleHandle(NULL), NULL, NULL, NULL, NULL, (L"Acoustic Soundboard"), NULL };
 	RegisterClassEx(&wc);
-	HWND hwnd = CreateWindow(wc.lpszClassName, (L"AcousticSoundboard MiniAudio Prototype"),
+	HWND hwnd = CreateWindow(wc.lpszClassName, (L"Acoustic Soundboard"),
 		WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
 
 	if (!CreateDeviceD3D(hwnd))
