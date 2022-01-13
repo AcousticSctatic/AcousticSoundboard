@@ -193,83 +193,7 @@ void DrawGUI() {
 	ImGui::SetNextWindowPos(viewport->WorkPos);
 	ImGui::SetNextWindowSize(viewport->WorkSize);
 	ImGui::Begin("Audio", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
-	ImGui::Text("Enter full file path with file extension here e.g. 'C:\\Sound.wav'");
-	ImGui::InputText("##", FilePath, (sizeof(char) * MAX_PATH), NULL, NULL, NULL);
-	if (ImGui::Button("Play file") == true)
-	{
-
-	}
-
-	ImGui::NewLine();
-	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
-	{
-		if (ImGui::Button("Select Playback Device"))
-			ShowPlaybackDeviceList = true;
-	}
-	else
-	{
-		ShowPlaybackDeviceList = false;
-	}
-
-	if (ShowPlaybackDeviceList)
-		SelectPlaybackDevice();
-
-	if (CaptureEngine.active == false)
-	{
-		if (ImGui::Button("Select Recording Device"))
-			ShowCaptureDeviceList = true;
-	}
-	if (ShowCaptureDeviceList)
-		SelectCaptureDevice();
-
-	ImGui::NewLine();
-	ImGui::BeginTable("Playback Devices", 1);
-	ImGui::TableSetupColumn("Playback Devices");
-	ImGui::TableHeadersRow();
-	for (int i = 0; i < PlaybackDeviceCount; i++)
-	{
-		if (PlaybackDeviceSelected[i] == true)
-		{
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%s", pPlaybackDeviceInfos[i].name);
-		}
-	}
-	ImGui::EndTable();
-	if (NumActivePlaybackDevices > 0)
-	{
-		if (ImGui::Button("Close Playback Devices"))
-			ClosePlaybackDevices();
-	}
-
-	ImGui::BeginTable("Capture Device", 1);
-	ImGui::TableSetupColumn("Capture Device");
-	ImGui::TableHeadersRow();
-	for (int i = 0; i < CaptureDeviceCount; i++)
-	{
-		if (CaptureDeviceSelected[i] == true)
-		{
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%s", pCaptureDeviceInfos[i].name);
-		}
-	}
-	if (NumActiveCaptureDevices > 0)
-	{
-		ImGui::NewLine();
-		ImGui::Text("This device is playing through");
-		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
-	}
-	ImGui::EndTable();
-
-	if (CaptureEngine.active == true)
-	{
-		if (ImGui::Button("Close Capture Device"))
-			CloseCaptureDevice();
-	}
-
-
-	// ---------- Main table ----------
+	// ---------- Hotkeys table ----------
 	ImGui::BeginTable("Sounds", 3, GUITableFlags);
 	ImGui::TableSetupColumn(" #  Hotkey", ImGuiTableColumnFlags_WidthFixed);
 	ImGui::TableSetupColumn("File");
@@ -346,10 +270,10 @@ void DrawGUI() {
 		}
 		ImGui::PopID();
 	}
-	ImGui::EndTable();
-	// ---------- END Main table ----------
+	ImGui::EndTable(); // ---------- END Hotkeys table ----------
+	
 
-	// ---------- Page display ----------
+		// ---------- Page display ----------
 	ImGui::Text("%s %d %s %d", "Page ", CurrentPage, " / ", 5);
 	if (ImGui::Button("< Previous Page") == true) {
 		if (CurrentPage > 1) {
@@ -362,18 +286,81 @@ void DrawGUI() {
 		if (CurrentPage < 5) {
 			CurrentPage++;
 		}
-	}
-	// ---------- END Page display ----------
+	} // ---------- END Page display ----------
 
-	if (ImGui::Button("Playback Devices") == true) {
-		ShowPlaybackDevices = true;
-	}
 	if (ImGui::Button("Stop All Sounds") == true) {
 		//StopAllChannels();
 	}
+	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
-	if (ImGui::Checkbox("Autosave", &Autosave) == true) {
+	if (ImGui::Checkbox("Autosave", &Autosave) == true)
+
+	ImGui::NewLine();
+	ImGui::BeginTable("Playback Devices", 1);
+	ImGui::TableSetupColumn("Playback Devices");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < PlaybackDeviceCount; i++)
+	{
+		if (PlaybackDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pPlaybackDeviceInfos[i].name);
+		}
 	}
+	ImGui::EndTable();
+	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
+	{
+		if (ImGui::Button("Select Playback Device"))
+			ShowPlaybackDeviceList = true;
+	}
+	else
+	{
+		ShowPlaybackDeviceList = false;
+	}
+
+	if (ShowPlaybackDeviceList)
+		SelectPlaybackDevice();
+
+	if (NumActivePlaybackDevices > 0)
+	{
+		if (ImGui::Button("Close Playback Devices"))
+			ClosePlaybackDevices();
+	}
+
+	ImGui::BeginTable("Capture Device", 1);
+	ImGui::TableSetupColumn("Capture Device");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < CaptureDeviceCount; i++)
+	{
+		if (CaptureDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pCaptureDeviceInfos[i].name);
+		}
+	}
+	if (NumActiveCaptureDevices > 0)
+	{
+		ImGui::NewLine();
+		ImGui::Text("This device is playing through");
+		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
+	}
+	ImGui::EndTable();
+
+	if (CaptureEngine.active == true)
+	{
+		if (ImGui::Button("Close Capture Device"))
+			CloseCaptureDevice();
+	}
+
+	if (CaptureEngine.active == false)
+	{
+		if (ImGui::Button("Select Recording Device"))
+			ShowCaptureDeviceList = true;
+	}
+	if (ShowCaptureDeviceList)
+		SelectCaptureDevice();
 
 	// ---------- Key Capture Window ----------
 	if (ShowKeyCaptureWindow == true) {
@@ -483,15 +470,6 @@ void DrawGUI() {
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
-	// ---------- Playback Devices Window ----------
-	if (ShowPlaybackDevices == true) {
-		if (UserPressedEscape == true) {
-			ShowPlaybackDevices = false;
-		}
-		ImGui::Begin("Playback Devices", &ShowPlaybackDevices);
-		ImGui::End();
-	} // ----------END Playback Devices Window ----------
-
 	ImGui::End(); // End main window
 	ImGui::EndFrame();
 	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
@@ -509,8 +487,6 @@ void DrawGUI() {
 	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
 	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
 		ResetDeviceD3D();
-
-
 }
 
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
