@@ -70,9 +70,69 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
 		return true;
 
+	wchar_t msg[32];
 	switch (message)
 	{		
+	case WM_SYSKEYUP: // Falls through
+	case WM_KEYUP:
+	{
+		// If we are in key capture mode, store the inputs
+		/*
+		if (CaptureKeys == true)
+		{
+			int returnValue = 0;
+			returnValue = GetKeyNameText(lParam, CapturedKeyText, sizeof(char) * MAX_PATH);
+			if (returnValue == 0)
+			{
+				DWORD error = GetLastError();
+				PrintToLog("log-error.txt", "GetKeyNameText() failed");
+			}
+			*/
+
+			/*
+			if (shiftDown) {
+				strcpy(CapturedKeyModText, "SHIFT + ");
+				Win32CapturedKeyMod = VK_SHIFT;
+			}
+			else if (ctrlDown) {
+				strcpy(CapturedKeyModText, "CTRL + ");
+				Win32CapturedKeyMod = VK_CONTROL;
+			}
+			else if (altDown) {
+				strcpy(CapturedKeyModText, "ALT + ");
+				Win32CapturedKeyMod = VK_MENU;
+			}
+		}
+		*/
+
+		switch (wParam)
+		{ // These fall through
+		case VK_CONTROL:
+		case VK_SHIFT:
+		case VK_MENU:
+		case VK_UP:
+		case VK_RIGHT:
+		case VK_DOWN:
+		case VK_LEFT:
+			break;
+		case VK_RETURN:
+			UserPressedReturn = true;
+			break;
+		case VK_ESCAPE:
+			UserPressedEscape = true;
+			break;
+		case VK_BACK:
+			UserPressedBackspace = true;
+			break;
+		default:
+			if (CaptureKeys == true)
+				CapturedKeyCode = wParam;
+			break;
+		}
+		break;
+	}
 	case WM_SIZE:
+	{
 		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
 		{
 			g_d3dpp.BackBufferWidth = LOWORD(lParam);
@@ -80,6 +140,13 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			ResetDeviceD3D();
 		}
 		break;
+	}
+	case WM_CHAR:
+	{
+		swprintf_s(msg, L"WM_KEYDOWN: %c\n", wParam);
+		OutputDebugString(msg);
+		break;
+	}
 	case WM_CLOSE:
 		PostQuitMessage(0);
 		WindowShouldClose = true;
@@ -395,7 +462,7 @@ void DrawGUI() {
 			if (CapturedKeyText != NULL) {
 				for (int i = 0; i < NUM_SOUNDS; i++) {
 					// Compare the captured key with all the stored hotkeys
-					if (strcmp(Hotkeys[i].keyText, CapturedKeyText) == 0) {
+					if (strcmp(Hotkeys[i].keyText, (const char*)CapturedKeyText) == 0) {
 						// If they are the same, check the captured hotkey
 						// If the captured key mod is NULL, then check the hotkey mod
 						if (CapturedKeyModText == NULL) {
@@ -417,7 +484,7 @@ void DrawGUI() {
 				if (CapturedKeyInUse == false) {
 					if (CapturedKeyCode != NULL) {
 						Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-						strcpy(Hotkeys[CapturedKeyIndex].keyText, CapturedKeyText);
+						strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
 						Hotkeys[CapturedKeyIndex].win32Key = CapturedKeyCode;
 						if (Win32CapturedKeyMod != NULL) {
 							Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
@@ -669,69 +736,17 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 	// If this code is less than zero, we must pass the message to the next hook
 	if (nCode >= 0)
 	{
-		PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
-		// TODO: Instead of calling GetAsyncKeyState we might check the wParam using GetKeyNameText()
-		bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-		bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-		bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
-
-		// If we are in key capture mode, store the inputs
-		if (CaptureKeys) 
-		{
-			if (shiftDown) {
-				strcpy(CapturedKeyModText, "SHIFT + ");
-				Win32CapturedKeyMod = VK_SHIFT;
-			}
-			else if (ctrlDown) {
-				strcpy(CapturedKeyModText, "CTRL + ");
-				Win32CapturedKeyMod = VK_CONTROL;
-			}
-			else if (altDown) {
-				strcpy(CapturedKeyModText, "ALT + ");
-				Win32CapturedKeyMod = VK_MENU;
-			}
-
-			switch (p->vkCode)
-			{ // These fall through
-			case VK_CONTROL:
-			case VK_SHIFT:
-			case VK_MENU:
-			case VK_UP:
-			case VK_RIGHT:
-			case VK_DOWN:
-			case VK_LEFT:
-				break;
-
-			case VK_RETURN:
-				UserPressedReturn = true;
-				break;
-			case VK_ESCAPE:
-				UserPressedEscape = true;
-				break;
-			case VK_BACK:
-				UserPressedBackspace = true;
-				break;
-			default:
-				CapturedKeyCode = p->vkCode;
-			}
-
-			int returnValue = 0;
-			switch (wParam)
-			{
-			case WM_SYSKEYUP: // Falls through
-			case WM_KEYUP:
-				returnValue = GetKeyNameText(lParam, (LPWSTR)CapturedKeyText, sizeof(char[MAX_PATH]));
-				if (returnValue == 0)
-					PrintToLog("log-error.txt", "GetKeyNameText() failed");
-			default:
-				break;
-			}
-		}
-
 		// Else we are checking for hotkey matches
-		else 
+		if (CaptureKeys == false)
 		{
-			switch (wParam) {
+			PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+			// TODO: Instead of calling GetAsyncKeyState we might check the wParam using GetKeyNameText()
+			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+
+			switch (wParam) 
+			{
 			case WM_SYSKEYUP:
 			case WM_KEYUP:
 			{
@@ -779,10 +794,10 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 					}
 				}
 			}
-			break;
 			default:
 				break;
 			}
+
 		}
 	}
 

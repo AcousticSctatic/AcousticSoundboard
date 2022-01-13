@@ -93,7 +93,7 @@ bool WindowShouldClose = false;
 // Hotkey globals
 DWORD CapturedKeyCode;
 int CapturedKeyIndex = 0;
-char CapturedKeyText[MAX_PATH];
+wchar_t CapturedKeyText[MAX_PATH];
 int Win32CapturedKeyMod;
 char CapturedKeyModText[MAX_PATH];
 Hotkey Hotkeys[NUM_SOUNDS];
