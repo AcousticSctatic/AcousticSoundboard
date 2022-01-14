@@ -73,9 +73,25 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	wchar_t msg[512];
 	switch (message)
 	{		
+	case WM_KEYDOWN:
+	{
+		if (CaptureKeys == true)
+		{
+			BYTE keyState[256];
+			GetKeyboardState(keyState);
+			keyState[VK_CONTROL] = keyState[VK_MENU] = 0;
+			keyState[VK_LCONTROL] = keyState[VK_LMENU] = 0;
+			keyState[VK_RCONTROL] = keyState[VK_RMENU] = 0;
+			UINT scanCode = (lParam >> 16) & 0xFF;
+			int i = ToUnicode(wParam, scanCode, keyState, msg, 512, 0);
+			wcscpy(CapturedKeyText, msg);
+		}
+		break;
+	}
 	case WM_SYSKEYUP: // Falls through
 	case WM_KEYUP:
 	{
+		/*
 		// If we are in key capture mode, store the inputs
 		if (CaptureKeys == true)
 		{
@@ -95,6 +111,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 				Win32CapturedKeyMod = VK_MENU;
 			}
 		}
+		*/
 
 		switch (wParam)
 		{ // These fall through
@@ -134,10 +151,12 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	}
 	case WM_CHAR:
 	{
+		/*
 		//wParam = wParam & ~(1 << 24);
 		wParam = wParam | 1 << 4;
 		swprintf_s(msg, L"WM_KEYDOWN: %c\n", wParam);
 		OutputDebugString(msg);
+		*/
 		break;
 	}
 	case WM_CLOSE:
