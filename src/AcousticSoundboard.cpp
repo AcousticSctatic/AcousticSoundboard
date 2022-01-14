@@ -103,15 +103,6 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 				CapturedKeyCode = wParam;
 				Win32CapturedKeyMod = 0;
 				CapturedKeyModText[0] = '\0';
-				/*
-				BYTE keyState[256];
-				GetKeyboardState(keyState);
-				keyState[VK_CONTROL] = keyState[VK_SHIFT] = keyState[VK_MENU] = 0;
-				keyState[VK_LCONTROL] = keyState[VK_LSHIFT] = keyState[VK_LMENU] = 0;
-				keyState[VK_RCONTROL] = keyState[VK_RSHIFT] = keyState[VK_RMENU] = 0;
-				UINT scanCode = (lParam >> 16) & 0xFF;
-				int i = ToUnicode(wParam, scanCode, keyState, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH, 0);
-				*/
 				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
 				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
 				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
@@ -141,16 +132,6 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			g_d3dpp.BackBufferHeight = HIWORD(lParam);
 			ResetDeviceD3D();
 		}
-		break;
-	}
-	case WM_CHAR:
-	{
-		/*
-		//wParam = wParam & ~(1 << 24);
-		wParam = wParam | 1 << 4;
-		swprintf_s(msg, L"WM_KEYDOWN: %c\n", wParam);
-		OutputDebugString(msg);
-		*/
 		break;
 	}
 	case WM_CLOSE:
