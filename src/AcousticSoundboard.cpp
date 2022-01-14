@@ -70,24 +70,10 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
 		return true;
 
-	wchar_t msg[32];
+	wchar_t msg[512];
 	switch (message)
 	{		
-		// Here is some test code from stackoverflow that claims to be able to read any key
-		// https://stackoverflow.com/questions/8161741/handling-keyboard-input-in-win32-wm-char-or-wm-keydown-wm-keyup
-		/* 
-		// get the keyboard state
-		BYTE keyState[256];
-		GetKeyboardState(keyState);
-		// clear all of the modifier keys so ToUnicode will ignore them
-		keyState[VK_CONTROL] = keyState[VK_SHIFT] = keyState[VK_MENU] = 0;
-		keyState[VK_LCONTROL] = keyState[VK_LSHIFT] = keyState[VK_LMENU] = 0;
-		keyState[VK_RCONTROL] = keyState[VK_RSHIFT] = keyState[VK_RMENU] = 0;
-		// convert the WM_KEYDOWN/WM_KEYUP/WM_SYSKEYDOWN/WM_SYSKEYUP to characters
-		UINT scanCode = (inLParam >> 16) & 0xFF;
-		int i = ToUnicode(inWParam, scanCode, keyState, outBuf, inOutBufLenCharacters, 0);
-		outBuf[i] = 0;
-		*/
+
 	case WM_SYSKEYUP: // Falls through
 	case WM_KEYUP:
 	{
@@ -158,8 +144,10 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	}
 	case WM_CHAR:
 	{
+		/*
 		swprintf_s(msg, L"WM_KEYDOWN: %c\n", wParam);
 		OutputDebugString(msg);
+		*/
 		break;
 	}
 	case WM_CLOSE:
