@@ -70,49 +70,14 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
 		return true;
 
-	wchar_t msg[512];
 	switch (message)
 	{		
-	case WM_KEYDOWN:
-	{
-		if (CaptureKeys == true)
-		{
-			BYTE keyState[256];
-			GetKeyboardState(keyState);
-			keyState[VK_CONTROL] = keyState[VK_MENU] = 0;
-			keyState[VK_LCONTROL] = keyState[VK_LMENU] = 0;
-			keyState[VK_RCONTROL] = keyState[VK_RMENU] = 0;
-			UINT scanCode = (lParam >> 16) & 0xFF;
-			int i = ToUnicode(wParam, scanCode, keyState, msg, 512, 0);
-			wcscpy(CapturedKeyText, msg);
-		}
-		break;
-	}
 	case WM_SYSKEYUP: // Falls through
 	case WM_KEYUP:
+		break;
+	case WM_SYSKEYDOWN: // Falls through
+	case WM_KEYDOWN: 
 	{
-		/*
-		// If we are in key capture mode, store the inputs
-		if (CaptureKeys == true)
-		{
-			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
-			if (shiftDown) {
-				wcscpy_s(msg, sizeof(wchar_t) * 512, L"SHIFT + ");
-				Win32CapturedKeyMod = VK_SHIFT;
-			}
-			else if (ctrlDown) {
-				wcscpy_s(msg, sizeof(wchar_t) * 512, L"CTRL + ");
-				Win32CapturedKeyMod = VK_CONTROL;
-			}
-			else if (altDown) {
-				wcscpy_s(msg, sizeof(wchar_t) * 512, L"ALT + ");
-				Win32CapturedKeyMod = VK_MENU;
-			}
-		}
-		*/
-
 		switch (wParam)
 		{ // These fall through
 		case VK_CONTROL:
@@ -134,7 +99,36 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			break;
 		default:
 			if (CaptureKeys == true)
+			{
 				CapturedKeyCode = wParam;
+				Win32CapturedKeyMod = 0;
+				CapturedKeyModText[0] = '\0';
+				/*
+				BYTE keyState[256];
+				GetKeyboardState(keyState);
+				keyState[VK_CONTROL] = keyState[VK_SHIFT] = keyState[VK_MENU] = 0;
+				keyState[VK_LCONTROL] = keyState[VK_LSHIFT] = keyState[VK_LMENU] = 0;
+				keyState[VK_RCONTROL] = keyState[VK_RSHIFT] = keyState[VK_RMENU] = 0;
+				UINT scanCode = (lParam >> 16) & 0xFF;
+				int i = ToUnicode(wParam, scanCode, keyState, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH, 0);
+				*/
+				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
+				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+				if (shiftDown) {
+					strcpy(CapturedKeyModText, "SHIFT +");
+					Win32CapturedKeyMod = VK_SHIFT;
+				}
+				else if (ctrlDown) {
+					strcpy(CapturedKeyModText, "CTRL +");
+					Win32CapturedKeyMod = VK_CONTROL;
+				}
+				else if (altDown) {
+					strcpy(CapturedKeyModText, "ALT +");
+					Win32CapturedKeyMod = VK_MENU;
+				}
+			}
 			break;
 		}
 		break;
@@ -372,8 +366,7 @@ void DrawGUI() {
 	}
 	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
-	if (ImGui::Checkbox("Autosave", &Autosave) == true)
-
+	if (ImGui::Checkbox("Autosave", &Autosave) == true) {}
 	ImGui::NewLine();
 	ImGui::BeginTable("Playback Devices", 1);
 	ImGui::TableSetupColumn("Playback Devices");
@@ -533,6 +526,8 @@ void DrawGUI() {
 		CapturedKeyText[0] = '\0';
 		CapturedKeyModText[0] = '\0';
 	}
+
+	CaptureKeys = ShowKeyCaptureWindow;
 	// ----------END Key Capture Window ----------
 
 	// ---------- Key In Use Window ----------
