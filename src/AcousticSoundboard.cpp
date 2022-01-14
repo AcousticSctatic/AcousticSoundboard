@@ -73,38 +73,28 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	wchar_t msg[512];
 	switch (message)
 	{		
-
 	case WM_SYSKEYUP: // Falls through
 	case WM_KEYUP:
 	{
 		// If we are in key capture mode, store the inputs
-		/*
 		if (CaptureKeys == true)
 		{
-			int returnValue = 0;
-			returnValue = GetKeyNameText(lParam, CapturedKeyText, sizeof(char) * MAX_PATH);
-			if (returnValue == 0)
-			{
-				DWORD error = GetLastError();
-				PrintToLog("log-error.txt", "GetKeyNameText() failed");
-			}
-			*/
-
-			/*
+			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
 			if (shiftDown) {
-				strcpy(CapturedKeyModText, "SHIFT + ");
+				wcscpy_s(msg, sizeof(wchar_t) * 512, L"SHIFT + ");
 				Win32CapturedKeyMod = VK_SHIFT;
 			}
 			else if (ctrlDown) {
-				strcpy(CapturedKeyModText, "CTRL + ");
+				wcscpy_s(msg, sizeof(wchar_t) * 512, L"CTRL + ");
 				Win32CapturedKeyMod = VK_CONTROL;
 			}
 			else if (altDown) {
-				strcpy(CapturedKeyModText, "ALT + ");
+				wcscpy_s(msg, sizeof(wchar_t) * 512, L"ALT + ");
 				Win32CapturedKeyMod = VK_MENU;
 			}
 		}
-		*/
 
 		switch (wParam)
 		{ // These fall through
@@ -144,10 +134,10 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	}
 	case WM_CHAR:
 	{
-		/*
+		//wParam = wParam & ~(1 << 24);
+		wParam = wParam | 1 << 4;
 		swprintf_s(msg, L"WM_KEYDOWN: %c\n", wParam);
 		OutputDebugString(msg);
-		*/
 		break;
 	}
 	case WM_CLOSE:
