@@ -72,14 +72,11 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 
 	switch (message)
 	{		
-	case WM_SYSKEYUP: // Falls through
-	case WM_KEYUP:
-		break;
 	case WM_SYSKEYDOWN: // Falls through
 	case WM_KEYDOWN: 
 	{
 		switch (wParam)
-		{ // These fall through
+		{ // These fall through. We are purposefully ignoring these keys.
 		case VK_CONTROL:
 		case VK_SHIFT:
 		case VK_MENU:
@@ -88,14 +85,11 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 		case VK_DOWN:
 		case VK_LEFT:
 			break;
-		case VK_RETURN:
-			UserPressedReturn = true;
+		case VK_RETURN: UserPressedReturn = true;
 			break;
-		case VK_ESCAPE:
-			UserPressedEscape = true;
+		case VK_ESCAPE: UserPressedEscape = true;
 			break;
-		case VK_BACK:
-			UserPressedBackspace = true;
+		case VK_BACK: UserPressedBackspace = true;
 			break;
 		default:
 			if (CaptureKeys == true)
@@ -434,7 +428,7 @@ void DrawGUI() {
 		}
 
 		if (ImGui::Button("Set") == true || UserPressedReturn) {
-			if (ImGui::IsItemFocused() && CapturedKeyText == NULL) {
+			if (ImGui::IsItemFocused() && CapturedKeyCode == 0) {
 				if (UserPressedReturn)
 					UserPressedReturn = false;
 
@@ -445,15 +439,15 @@ void DrawGUI() {
 				ShowKeyCaptureWindow = false;
 			}
 
-			if (CapturedKeyText != NULL) {
+			if (CapturedKeyCode != 0) {
 				for (int i = 0; i < NUM_SOUNDS; i++) {
 					// Compare the captured key with all the stored hotkeys
 					if (strcmp(Hotkeys[i].keyText, (const char*)CapturedKeyText) == 0) {
 						// If they are the same, check the captured hotkey
 						// If the captured key mod is NULL, then check the hotkey mod
-						if (CapturedKeyModText == NULL) {
+						if (CapturedKeyModText[0] == '\0') {
 							// If the hotkey mod is also NULL, then the key is in use
-							if (Hotkeys[i].modText == NULL) {
+							if (Hotkeys[i].modText[0] == '\0') {
 								CapturedKeyInUse = true;
 								ShowKeyCaptureWindow = false;
 							}
@@ -468,7 +462,7 @@ void DrawGUI() {
 				}
 
 				if (CapturedKeyInUse == false) {
-					if (CapturedKeyCode != NULL) {
+					if (CapturedKeyCode != 0) {
 						Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
 						strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
 						Hotkeys[CapturedKeyIndex].win32Key = CapturedKeyCode;
@@ -727,17 +721,16 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 		// Else we are checking for hotkey matches
 		if (CaptureKeys == false)
 		{
-			PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
-			// TODO: Instead of calling GetAsyncKeyState we might check the wParam using GetKeyNameText()
-			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
-
 			switch (wParam) 
 			{
 			case WM_SYSKEYUP:
 			case WM_KEYUP:
 			{
+				PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+
 				if (p->vkCode == VK_PAUSE) {
 					//TODO StopAllChannels();
 					break;
