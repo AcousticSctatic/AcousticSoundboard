@@ -734,7 +734,8 @@ void InitSQLite() {
 	sqlite3_close(db);
 }
 
-LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) {
+LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) 
+{
 	// If this code is less than zero, we must pass the message to the next hook
 	if (nCode >= 0)
 	{
@@ -786,19 +787,17 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 							{
 								if (PlaybackEngines[j].active == true)
 								{
-									PlayAudio(j, 0, Hotkeys[i].filePath);
+									PlayAudio(j, i, Hotkeys[i].filePath);
 								}
 							}
-							
-							break; // Break out of the for loop
+							break; // Break out of the "sound search" for loop
 						}
 					}
 				}
-			}
+			} // End WM_KEYUP
 			default:
 				break;
-			}
-
+			} // End wParam switch (message)
 		}
 	}
 
@@ -858,12 +857,14 @@ void PlayAudio(int iEngine, int iSound, const char* filePath)
 		ma_result result = ma_sound_init_from_file(&PlaybackEngines[iEngine].engine,
 			filePath, flags, NULL, NULL, &PlaybackEngines[iEngine].sounds[iSound]);
 
-		if (result != MA_SUCCESS)
+		if (result == MA_SUCCESS)
+		{
+			SoundLoaded[iEngine][iSound] = true;
+		}
+		else
 		{
 			// Handle error
 		}
-
-		SoundLoaded[iEngine][iSound] = true;
 	}
 
 	if (ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]) != MA_SUCCESS)
