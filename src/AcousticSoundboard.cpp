@@ -76,15 +76,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	case WM_KEYDOWN: 
 	{
 		switch (wParam)
-		{ // These fall through. We are purposefully ignoring these keys.
-		case VK_CONTROL:
-		case VK_SHIFT:
-		case VK_MENU:
-		case VK_UP:
-		case VK_RIGHT:
-		case VK_DOWN:
-		case VK_LEFT:
-			break;
+		{
 		case VK_RETURN: UserPressedReturn = true;
 			break;
 		case VK_ESCAPE: UserPressedEscape = true;
@@ -92,29 +84,71 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 		case VK_BACK: UserPressedBackspace = true;
 			break;
 		default:
-			if (CaptureKeys == true)
-			{
-				CapturedKeyCode = wParam;
-				Win32CapturedKeyMod = 0;
-				CapturedKeyModText[0] = '\0';
-				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
-				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
-				if (shiftDown) {
-					strcpy(CapturedKeyModText, "SHIFT +");
-					Win32CapturedKeyMod = VK_SHIFT;
-				}
-				else if (ctrlDown) {
-					strcpy(CapturedKeyModText, "CTRL +");
-					Win32CapturedKeyMod = VK_CONTROL;
-				}
-				else if (altDown) {
-					strcpy(CapturedKeyModText, "ALT +");
-					Win32CapturedKeyMod = VK_MENU;
-				}
-			}
 			break;
+		}
+
+		if (CaptureKeys == true)
+		{
+			switch (wParam)
+			{ // These fall through. We are purposefully ignoring these keys.
+			case VK_CONTROL:
+			case VK_SHIFT:
+			case VK_MENU:
+			case VK_UP:
+			case VK_RIGHT:
+			case VK_DOWN:
+			case VK_LEFT:
+			case VK_RETURN:
+			case VK_ESCAPE:
+			case VK_BACK:
+				break;
+			case VK_F1: strcpy(CapturedKeyText, "F1");
+				break;
+			case VK_F2: strcpy(CapturedKeyText, "F2");
+				break;
+			case VK_F3: strcpy(CapturedKeyText, "F3");
+				break;
+			case VK_F4: strcpy(CapturedKeyText, "F4");
+				break;
+			case VK_F5: strcpy(CapturedKeyText, "F5");
+				break;
+			case VK_F6: strcpy(CapturedKeyText, "F6");
+				break;
+			case VK_F7: strcpy(CapturedKeyText, "F7");
+				break;
+			case VK_F8: strcpy(CapturedKeyText, "F8");
+				break;
+			case VK_F9: strcpy(CapturedKeyText, "F9");
+				break;
+			case VK_F10: strcpy(CapturedKeyText, "F10");
+				break;
+			case VK_F11: strcpy(CapturedKeyText, "F11");
+				break;
+			case VK_F12: strcpy(CapturedKeyText, "F12");
+				break;
+			default:
+				CapturedKeyCode = wParam;
+				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
+				break;
+			}
+
+			CapturedKeyMod = 0;
+			CapturedKeyModText[0] = '\0';
+			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+			if (shiftDown) {
+				strcpy(CapturedKeyModText, "SHIFT +");
+				CapturedKeyMod = VK_SHIFT;
+			}
+			else if (ctrlDown) {
+				strcpy(CapturedKeyModText, "CTRL +");
+				CapturedKeyMod = VK_CONTROL;
+			}
+			else if (altDown) {
+				strcpy(CapturedKeyModText, "ALT +");
+				CapturedKeyMod = VK_MENU;
+			}
 		}
 		break;
 	}
@@ -278,7 +312,6 @@ void DrawGUI() {
 		ImGui::SameLine();
 		ImGui::PushID(i);
 		if (ImGui::Button("Set Hotkey") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			if (UserPressedReturn) UserPressedReturn = false;
 			CaptureKeys = true;
 			CapturedKeyIndex = i;
 			ShowKeyCaptureWindow = true;
@@ -422,70 +455,58 @@ void DrawGUI() {
 		ImGui::Text("%s", "ENTER to set");
 		ImGui::Text("%s", "BACKSPCE to clear");
 		ImGui::NewLine();
-		if (UserPressedEscape) {
+		if (UserPressedEscape)
 			ShowKeyCaptureWindow = false;
-			UserPressedEscape = false;
-		}
 
-		if (ImGui::Button("Set") == true || UserPressedReturn) {
-			if (ImGui::IsItemFocused() && CapturedKeyCode == 0) {
-				if (UserPressedReturn)
-					UserPressedReturn = false;
-
+		if (ImGui::Button("Set") == true || ImGui::IsItemFocused() && UserPressedReturn) 
+		{
+			if (CapturedKeyCode == 0) 
+			{
+				Hotkeys[CapturedKeyIndex].keyCode = 0;
 				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
 				Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
-				CaptureKeys = false;
-				ShowKeyCaptureWindow = false;
+				Hotkeys[CapturedKeyIndex].keyMod = 0;
 			}
 
-			if (CapturedKeyCode != 0) {
-				for (int i = 0; i < NUM_SOUNDS; i++) {
+			else 
+			{
+				for (int i = 0; i < NUM_SOUNDS; i++)  
+				{
 					// Compare the captured key with all the stored hotkeys
-					if (strcmp(Hotkeys[i].keyText, (const char*)CapturedKeyText) == 0) {
-						// If they are the same, check the captured hotkey
-						// If the captured key mod is NULL, then check the hotkey mod
-						if (CapturedKeyModText[0] == '\0') {
-							// If the hotkey mod is also NULL, then the key is in use
-							if (Hotkeys[i].modText[0] == '\0') {
-								CapturedKeyInUse = true;
-								ShowKeyCaptureWindow = false;
-							}
-
-						}
-						// Else check the hotkey mod. If they are the same, the key is in use
-						else if (strcmp(Hotkeys[i].modText, CapturedKeyModText) == 0) {
+					if (Hotkeys[i].keyCode == CapturedKeyCode) 
+					{
+						// Then compare the captured keyMod with the corresponding stored keyMod
+						if (Hotkeys[i].keyMod == CapturedKeyMod)
+						{
 							CapturedKeyInUse = true;
 							ShowKeyCaptureWindow = false;
 						}
 					}
 				}
 
-				if (CapturedKeyInUse == false) {
-					if (CapturedKeyCode != 0) {
-						Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-						strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
-						Hotkeys[CapturedKeyIndex].win32Key = CapturedKeyCode;
-						if (Win32CapturedKeyMod != NULL) {
-							Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-							strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
-							Hotkeys[CapturedKeyIndex].win32KeyMod = Win32CapturedKeyMod;
-						}
+				if (CapturedKeyInUse == false) 
+				{
+					Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
+					strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
+					Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
+					if (CapturedKeyMod != 0) 
+					{
+						strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
+						Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
 					}
-
-					CaptureKeys = false;
-					ShowKeyCaptureWindow = false;
 				}
 			}
+
+			CaptureKeys = false;
+			ShowKeyCaptureWindow = false;
 		}
+
 		ImGui::NewLine();
 		if (ImGui::Button("Clear") == true || UserPressedBackspace ||
 			(ImGui::IsItemFocused() && UserPressedReturn)) {
-			if (UserPressedBackspace) UserPressedBackspace = false;
-			if (UserPressedReturn) UserPressedReturn = false;
 			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].win32Key = NULL;
-			Hotkeys[CapturedKeyIndex].win32KeyMod = NULL;
+			Hotkeys[CapturedKeyIndex].keyCode = NULL;
+			Hotkeys[CapturedKeyIndex].keyMod = NULL;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
 			Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
 			CapturedKeyCode = NULL;
@@ -493,7 +514,6 @@ void DrawGUI() {
 			CapturedKeyModText[0] = '\0';
 		}
 		ImGui::End();
-		if (UserPressedReturn) UserPressedReturn = false;
 	}
 
 	else {
@@ -509,9 +529,9 @@ void DrawGUI() {
 	if (CapturedKeyInUse == true) {
 		ImGui::Begin("Invalid Key", &CapturedKeyInUse, ImGuiWindowFlags_AlwaysAutoResize);
 		ImGui::Text("Key already in use.\nClose this window and try again.");
-		if (ImGui::Button(" OK ") == true || UserPressedReturn || UserPressedEscape) {
-			if (UserPressedReturn) UserPressedReturn = false;
-			if (UserPressedEscape) UserPressedEscape = false;
+		if (ImGui::Button(" OK ") == true || UserPressedEscape ||
+			ImGui::IsItemFocused() && UserPressedReturn)
+		{
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
@@ -738,25 +758,25 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 
 				bool hotkeyFound = false;
 				for (size_t i = 0; i < NUM_SOUNDS; i++) {
-					if (Hotkeys[i].win32Key != NULL) {
-						if (Hotkeys[i].win32KeyMod != NULL) {
-							if (p->vkCode == Hotkeys[i].win32Key) {
+					if (Hotkeys[i].keyCode != NULL) {
+						if (Hotkeys[i].keyMod != NULL) {
+							if (p->vkCode == Hotkeys[i].keyCode) {
 								if (shiftDown) {
-									if (Hotkeys[i].win32KeyMod == VK_SHIFT)
+									if (Hotkeys[i].keyMod == VK_SHIFT)
 										hotkeyFound = true;
 								}
 								else if (ctrlDown) {
-									if (Hotkeys[i].win32KeyMod == VK_CONTROL)
+									if (Hotkeys[i].keyMod == VK_CONTROL)
 										hotkeyFound = true;
 								}
 								else if (altDown) {
-									if (Hotkeys[i].win32KeyMod == VK_MENU)
+									if (Hotkeys[i].keyMod == VK_MENU)
 										hotkeyFound = true;
 								}
 							}
 						}
 						// Else if there is no modifier
-						else if ((p->vkCode == Hotkeys[i].win32Key) &&
+						else if ((p->vkCode == Hotkeys[i].keyCode) &&
 							altDown == false && ctrlDown == false && shiftDown == false) {
 							hotkeyFound = true;
 						}
@@ -807,8 +827,8 @@ void LoadHotkeysFromDatabase() {
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 			if (rowCounter < 50) {
 				Hotkeys[rowCounter].sampleIndex = sqlite3_column_int(stmt, 0);
-				Hotkeys[rowCounter].win32KeyMod = sqlite3_column_int(stmt, 1);
-				Hotkeys[rowCounter].win32Key = sqlite3_column_int(stmt, 2);
+				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
+				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
 				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
 				strcpy(Hotkeys[rowCounter].keyText, (const char*)sqlite3_column_text(stmt, 4));
 				strcpy(Hotkeys[rowCounter].filePath, (const char*)sqlite3_column_text(stmt, 5));
@@ -874,8 +894,10 @@ void ResetDeviceD3D()
 }
 
 void ResetNavKeys() {
-	UserPressedEscape = false;
-	UserPressedReturn = false;
+	if (UserPressedReturn)
+		UserPressedReturn = false;
+	if (UserPressedEscape)
+		UserPressedEscape = false;
 }
 
 void SaveHotkeysToDatabase() {
@@ -902,12 +924,12 @@ void SaveHotkeysToDatabase() {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].win32KeyMod);
+		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].win32Key);
+		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].keyCode);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);

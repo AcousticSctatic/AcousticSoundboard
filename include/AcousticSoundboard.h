@@ -23,8 +23,8 @@
 #define MAX_SOUNDS 50
 
 typedef struct Hotkey {
-	int win32KeyMod;
-	int win32Key;
+	int keyMod;
+	int keyCode;
 	char keyText[MAX_PATH];
 	char modText[MAX_PATH];
 	int sampleIndex;
@@ -94,7 +94,7 @@ bool WindowShouldClose = false;
 DWORD CapturedKeyCode;
 int CapturedKeyIndex = 0;
 char CapturedKeyText[MAX_PATH];
-int Win32CapturedKeyMod;
+int CapturedKeyMod;
 char CapturedKeyModText[MAX_PATH];
 Hotkey Hotkeys[NUM_SOUNDS];
 
