@@ -24,10 +24,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
 	}
 
+	/*
 	// Initialize hotkeys indices
 	for (int i = 0; i < NUM_SOUNDS; i++) {
 		Hotkeys[i].sampleIndex = i;
 	}
+	*/
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -342,10 +344,20 @@ void DrawGUI() {
 		ImGui::Text(Hotkeys[i].fileName);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
-		if (ImGui::Button("Reset") == true) {
-			if (Hotkeys[i].filePath[0] != '\0') {
+		if (ImGui::Button("Reset") == true) 
+		{
+			if (Hotkeys[i].filePath[0] != '\0') 
+			{
 				Hotkeys[i].fileName[0] = '\0';
 				Hotkeys[i].filePath[0] = '\0';
+			}
+
+			for (int j = 0; j < NumActivePlaybackDevices; j++)
+			{
+				if (PlaybackEngines[j].active == true)
+				{
+					UnloadSound(i);
+				}
 			}
 			//StopAllChannels();
 		}
@@ -486,7 +498,7 @@ void DrawGUI() {
 
 				if (CapturedKeyInUse == false) 
 				{
-					Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
+					//Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
 					strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
 					Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
 					if (CapturedKeyMod != 0) 
@@ -508,7 +520,7 @@ void DrawGUI() {
 			Hotkeys[CapturedKeyIndex].keyCode = NULL;
 			Hotkeys[CapturedKeyIndex].keyMod = NULL;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
+			//Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
 			CapturedKeyCode = NULL;
 			CapturedKeyText[0] = '\0';
 			CapturedKeyModText[0] = '\0';
@@ -825,7 +837,7 @@ void LoadHotkeysFromDatabase() {
 		int rowCounter = 0;
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 			if (rowCounter < 50) {
-				Hotkeys[rowCounter].sampleIndex = sqlite3_column_int(stmt, 0);
+				//Hotkeys[rowCounter].sampleIndex = sqlite3_column_int(stmt, 0);
 				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
 				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
 				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
@@ -904,7 +916,7 @@ void ResetNavKeys() {
 void SaveHotkeysToDatabase() {
 	char* zErrMsg = 0;
 	int rc;
-	const char* sql_statement = "REPLACE INTO HOTKEYS(SAMPLE_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
+	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
 	rc = sqlite3_open("hotkeys.db", &db);
 
@@ -919,38 +931,39 @@ void SaveHotkeysToDatabase() {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-
+		/*
 		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].sampleIndex);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
+		*/
+		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].keyCode);
+		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyCode);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].modText, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 3, Hotkeys[i].modText, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 5, Hotkeys[i].keyText, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].keyText, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].filePath, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 5, Hotkeys[i].filePath, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 7, Hotkeys[i].fileName, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].fileName, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
@@ -1042,6 +1055,18 @@ void SelectPlaybackDevice()
 
 	}
 	ImGui::End();
+}
+
+void UnloadSound(int iSound)
+{
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (PlaybackEngines[i].active == true)
+		{
+			ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
+			SoundLoaded[i][iSound] = false;
+		}
+	}
 }
 
 void Update() {

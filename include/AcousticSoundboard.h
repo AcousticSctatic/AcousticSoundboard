@@ -22,12 +22,12 @@
 #define MAX_PLAYBACK_DEVICES 2
 #define MAX_SOUNDS 50
 
+//int sampleIndex;
 typedef struct Hotkey {
 	int keyMod;
 	int keyCode;
-	char keyText[MAX_PATH];
 	char modText[MAX_PATH];
-	int sampleIndex;
+	char keyText[MAX_PATH];
 	char filePath[MAX_PATH];
 	char fileName[MAX_PATH];
 }Hotkey;
@@ -126,17 +126,5 @@ void ResetNavKeys();
 void SaveHotkeysToDatabase();
 void SelectCaptureDevice();
 void SelectPlaybackDevice();
+void UnloadSound(int iSound);
 void Update();
-
-
-
-
-
-
-
-
-
-
-
-
-
