@@ -24,6 +24,7 @@
 
 //int sampleIndex;
 typedef struct Hotkey {
+	int index;
 	int keyMod;
 	int keyCode;
 	char modText[MAX_PATH];
