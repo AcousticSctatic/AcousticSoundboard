@@ -63,7 +63,7 @@ size_t CurrentPage;
 // Audio Globals
 #define NUM_SOUNDS (SOUNDS_PER_PAGE * NUM_PAGES)
 ma_context Context;
-bool SoundLoaded[MAX_PLAYBACK_DEVICES][MAX_SOUNDS];
+bool SoundLoaded[MAX_PLAYBACK_DEVICES][NUM_SOUNDS];
 Playback_Engine PlaybackEngines[MAX_PLAYBACK_DEVICES];
 Capture_Engine CaptureEngine;
 ma_device_info* pPlaybackDeviceInfos;

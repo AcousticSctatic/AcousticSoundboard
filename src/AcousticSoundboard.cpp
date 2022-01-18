@@ -194,10 +194,8 @@ void CloseAudioSystem()
 			ma_engine_uninit(&PlaybackEngines[i].engine);
 			ma_device_uninit(&PlaybackEngines[i].device);
 
-			for (int j = 0; j < MAX_SOUNDS; j++)
-			{
-				ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
-			}
+			for (int i = 0; i < NUM_SOUNDS; i++)
+				UnloadSound(i);
 		}
 	}
 
@@ -236,7 +234,7 @@ void ClosePlaybackDevices()
 			ma_engine_uninit(&PlaybackEngines[i].engine);
 			ma_device_uninit(&PlaybackEngines[i].device);
 
-			for (int j = 0; j < MAX_SOUNDS; j++)
+			for (int j = 0; j < NUM_SOUNDS; j++)
 			{
 				if (SoundLoaded[i][j] == true)
 				{
@@ -336,7 +334,7 @@ void DrawGUI() {
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
 		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			//StopAllChannels();
+			UnloadSound(i);
 			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
 			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
 			if (AudioFilePath != NULL) {
@@ -364,7 +362,6 @@ void DrawGUI() {
 					UnloadSound(i);
 				}
 			}
-			//StopAllChannels();
 		}
 		ImGui::PopID();
 	}
@@ -386,8 +383,10 @@ void DrawGUI() {
 		}
 	} // ---------- END Page display ----------
 
-	if (ImGui::Button("Stop All Sounds") == true) {
-		//StopAllChannels();
+	if (ImGui::Button("Stop All Sounds") == true) 
+	{
+		for (int i = 0; i < NUM_SOUNDS; i++)
+			UnloadSound(i);
 	}
 	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
@@ -762,8 +761,12 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
 				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
 
-				if (p->vkCode == VK_PAUSE) {
-					//TODO StopAllChannels();
+				if (p->vkCode == VK_PAUSE) 
+				{
+					for (int i = 0; i < NUM_SOUNDS; i++)
+					{
+						UnloadSound(i);
+					}
 					break;
 				}
 
@@ -1061,8 +1064,11 @@ void UnloadSound(int iSound)
 	{
 		if (PlaybackEngines[i].active == true)
 		{
-			ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
-			SoundLoaded[i][iSound] = false;
+			if (SoundLoaded[i][iSound] == true)
+			{
+				ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
+				SoundLoaded[i][iSound] = false;
+			}
 		}
 	}
 }
