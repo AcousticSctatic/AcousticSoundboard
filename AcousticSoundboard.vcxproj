@@ -176,6 +176,13 @@ xcopy /d /y "$(OutDir)\*.exe" "$(OutDir)\Deploy\"</Command>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AcousticSoundboard.h" />
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="AcousticSoundboard.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="icon.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
