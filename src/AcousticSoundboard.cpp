@@ -881,6 +881,8 @@ void PlayAudio(int iEngine, int iSound, const char* filePath)
 		}
 	}
 
+	ma_data_source_seek_to_pcm_frame(PlaybackEngines[iEngine].sounds[iSound].pDataSource, 0);
+
 	if (ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]) != MA_SUCCESS)
 	{
 		// Handle error failed to start sound
