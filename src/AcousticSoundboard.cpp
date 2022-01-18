@@ -689,11 +689,10 @@ void InitPlaybackDevice(ma_device_id* deviceId)
 		// Handle error
 	}
 
-	/* Now that we have the device we can initialize the engine. The device is passed into the engine's config. */
 	engineConfig = ma_engine_config_init();
 	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
 	engineConfig.pResourceManager = &ResourceManager;
-	engineConfig.noAutoStart = MA_TRUE;    /* Don't start the engine by default - we'll do that manually below. */
+	engineConfig.noAutoStart = MA_TRUE;
 
 	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
 	if (result != MA_SUCCESS) {
@@ -1044,6 +1043,8 @@ void SelectCaptureDevice()
 void SelectPlaybackDevice()
 {
 	ImGui::Begin("Select Playback Device (max 2)", &ShowPlaybackDeviceList);
+	ImGui::Text("Select where you want to hear sound (up to 2 devices).\nThis is usually your speakers and a virtual cable input.");
+	ImGui::NewLine();
 	for (int i = 0; i < PlaybackDeviceCount; i += 1)
 	{
 		if (PlaybackDeviceSelected[i] == false)
