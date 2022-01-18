@@ -12,7 +12,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	if (!CreateDeviceD3D(hwnd))
 		return 1;
 
-	if (InitAudioSystem() < 0) {
+	if (InitAudioSystem() < 0) 
+	{
 		// Handle error
 	}
 
@@ -21,22 +22,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 
 	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
 
-	if (KeyboardHook == NULL) {
+	if (KeyboardHook == NULL) 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
-	}
 
 	// Initialize hotkeys indices (IMPORTANT for the database row numbers)
-	for (int i = 0; i < NUM_SOUNDS; i++) {
+	for (int i = 0; i < NUM_SOUNDS; i++)
 		Hotkeys[i].index = i;
-	}
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
 	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
-
-	CurrentPage = 1;
 
 	InitSQLite();
 	LoadHotkeysFromDatabase();
@@ -47,13 +44,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	ImGui_ImplDX9_Init(g_pd3dDevice);
 	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
 
-	while (WindowShouldClose == false) {
+	while (WindowShouldClose == false) 
+	{ // Main loop
 		Update();
 	}
 
 	// Close
-	if (Autosave == true) {
+	if (Autosave == true)
+	{
 		SaveHotkeysToDatabase();
+		SaveDevicesToDatabase();
 	}
 
 	ImGui_ImplDX9_Shutdown();
@@ -705,11 +705,11 @@ void InitPlaybackDevice(ma_device_id* deviceId)
 		// Handle error
 	}
 	PlaybackEngines[NumActivePlaybackDevices].active = true;
-
 	NumActivePlaybackDevices++;
 }
 
 void InitSQLite() {
+	//---------- Create hotkeys table ----------
 	char* zErrMsg = 0;
 	int rc;
 	const char* sql_statement =
@@ -718,7 +718,40 @@ void InitSQLite() {
 	rc = sqlite3_open("hotkeys.db", &db);
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		PrintToLog("log-error.txt", "SQL Error: Can't open database to create hotkeys table");
+		sqlite3_close(db);
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	sqlite3_close(db);
+
+	//---------- Create playback devices table ----------
+	zErrMsg = 0;
+	rc = 0;
+	sql_statement =
+		"CREATE TABLE IF NOT EXISTS PLAYBACK_DEVICES (DEVICE_INDEX INTEGER PRIMARY KEY, NAME TEXT);";
+	prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database to create playback devices table");
 		sqlite3_close(db);
 	}
 
@@ -916,7 +949,8 @@ void ResetNavKeys() {
 		UserPressedEscape = false;
 }
 
-void SaveHotkeysToDatabase() {
+void SaveHotkeysToDatabase() 
+{
 	char* zErrMsg = 0;
 	int rc;
 	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
@@ -940,7 +974,6 @@ void SaveHotkeysToDatabase() {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		
 		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
@@ -967,6 +1000,53 @@ void SaveHotkeysToDatabase() {
 			sqlite3_free(zErrMsg);
 		}
 		rc = sqlite3_bind_text(prepared_statement, 7, Hotkeys[i].fileName, -1, NULL);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		rc = sqlite3_step(prepared_statement);
+		if (rc != SQLITE_DONE) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		rc = sqlite3_finalize(prepared_statement);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+	}
+
+	sqlite3_close(db);
+}
+
+void SaveDevicesToDatabase()
+{
+	char* zErrMsg = 0;
+	int rc;
+	const char* sql_statement = "REPLACE INTO PLAYBACK_DEVICES(DEVICE_INDEX, NAME) VALUES (?, ?)";
+	sqlite3_stmt* prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		sqlite3_close(db);
+	}
+
+	for (size_t i = 0; i < NumActivePlaybackDevices; i++) {
+		rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		rc = sqlite3_bind_int(prepared_statement, 1, i);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+		rc = sqlite3_bind_text(prepared_statement, 2, PlaybackEngines[i].deviceName, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
@@ -1053,11 +1133,11 @@ void SelectPlaybackDevice()
 			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
 			{
 				PlaybackDeviceSelected[i] = true;
+				strcpy(PlaybackEngines[NumActivePlaybackDevices].deviceName, pPlaybackDeviceInfos[i].name);
 				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
 			}
 			ImGui::PopID();
 		}
-
 	}
 	ImGui::End();
 }

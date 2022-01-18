@@ -38,6 +38,7 @@ typedef struct playback_engine {
 	ma_engine engine;
 	ma_device device;
 	ma_sound sounds[MAX_SOUNDS];
+	char deviceName[256];
 } Playback_Engine;
 
 typedef struct capture_engine {
@@ -58,7 +59,7 @@ const ImGuiViewport* GUIviewport;
 ImGuiWindowFlags GUIWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus
 	| ImGuiWindowFlags_NoResize;
 ImGuiTableFlags GUITableFlags = ImGuiTableFlags_Borders;
-size_t CurrentPage;
+size_t CurrentPage = 1;
 
 // Audio Globals
 #define NUM_SOUNDS (SOUNDS_PER_PAGE * NUM_PAGES)
@@ -124,6 +125,7 @@ void PlayAudio(int iEngine, int iSound, const char* filePath);
 void PrintToLog(const char* fileName, const char* logText);
 void ResetDeviceD3D();
 void ResetNavKeys();
+void SaveDevicesToDatabase();
 void SaveHotkeysToDatabase();
 void SelectCaptureDevice();
 void SelectPlaybackDevice();
