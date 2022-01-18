@@ -24,12 +24,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
 	}
 
-	/*
-	// Initialize hotkeys indices
+	// Initialize hotkeys indices (IMPORTANT for the database row numbers)
 	for (int i = 0; i < NUM_SOUNDS; i++) {
-		Hotkeys[i].sampleIndex = i;
+		Hotkeys[i].index = i;
 	}
-	*/
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -91,6 +89,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 
 		if (CaptureKeys == true)
 		{
+			bool ignoreKey = false;
 			switch (wParam)
 			{ // These fall through. We are purposefully ignoring these keys.
 			case VK_CONTROL:
@@ -103,6 +102,9 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			case VK_RETURN:
 			case VK_ESCAPE:
 			case VK_BACK:
+				ignoreKey = true;
+				break;
+			case VK_TAB: strcpy(CapturedKeyText, "TAB");
 				break;
 			case VK_F1: strcpy(CapturedKeyText, "F1");
 				break;
@@ -129,27 +131,30 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			case VK_F12: strcpy(CapturedKeyText, "F12");
 				break;
 			default:
-				CapturedKeyCode = wParam;
 				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
 				break;
 			}
 
-			CapturedKeyMod = 0;
-			CapturedKeyModText[0] = '\0';
-			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
-			if (shiftDown) {
-				strcpy(CapturedKeyModText, "SHIFT +");
-				CapturedKeyMod = VK_SHIFT;
-			}
-			else if (ctrlDown) {
-				strcpy(CapturedKeyModText, "CTRL +");
-				CapturedKeyMod = VK_CONTROL;
-			}
-			else if (altDown) {
-				strcpy(CapturedKeyModText, "ALT +");
-				CapturedKeyMod = VK_MENU;
+			if (ignoreKey == false)
+			{
+				CapturedKeyCode = wParam;
+				CapturedKeyMod = 0;
+				CapturedKeyModText[0] = '\0';
+				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+				if (shiftDown) {
+					strcpy(CapturedKeyModText, "SHIFT +");
+					CapturedKeyMod = VK_SHIFT;
+				}
+				else if (ctrlDown) {
+					strcpy(CapturedKeyModText, "CTRL +");
+					CapturedKeyMod = VK_CONTROL;
+				}
+				else if (altDown) {
+					strcpy(CapturedKeyModText, "ALT +");
+					CapturedKeyMod = VK_MENU;
+				}
 			}
 		}
 		break;
@@ -321,11 +326,11 @@ void DrawGUI() {
 		ImGui::PopID();
 
 		ImGui::SameLine();
-		if (Hotkeys[i].modText != NULL) {
+		if (Hotkeys[i].modText[0] != '\0') {
 			ImGui::Text("%s", Hotkeys[i].modText);
 		}
 		ImGui::SameLine();
-		if (Hotkeys[i].keyText != NULL) {
+		if (Hotkeys[i].keyText[0] != '\0') {
 			ImGui::Text("%s", Hotkeys[i].keyText);
 		}
 		ImGui::TableNextColumn();
@@ -498,14 +503,10 @@ void DrawGUI() {
 
 				if (CapturedKeyInUse == false) 
 				{
-					//Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
 					strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
 					Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
-					if (CapturedKeyMod != 0) 
-					{
-						strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
-						Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
-					}
+					strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
+					Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
 				}
 			}
 
@@ -517,21 +518,15 @@ void DrawGUI() {
 		if (ImGui::Button("Clear") == true || UserPressedBackspace ||
 			(ImGui::IsItemFocused() && UserPressedReturn)) {
 			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].keyCode = NULL;
-			Hotkeys[CapturedKeyIndex].keyMod = NULL;
+			Hotkeys[CapturedKeyIndex].keyCode = 0;
+			Hotkeys[CapturedKeyIndex].keyMod = 0;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			//Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
-			CapturedKeyCode = NULL;
+			CapturedKeyCode = 0;
+			CapturedKeyMod = 0;
 			CapturedKeyText[0] = '\0';
 			CapturedKeyModText[0] = '\0';
 		}
 		ImGui::End();
-	}
-
-	else {
-		CapturedKeyCode = NULL;
-		CapturedKeyText[0] = '\0';
-		CapturedKeyModText[0] = '\0';
 	}
 
 	CaptureKeys = ShowKeyCaptureWindow;
@@ -547,7 +542,10 @@ void DrawGUI() {
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
-		CapturedKeyText[0] = '\0';;
+		CapturedKeyCode = 0;
+		CapturedKeyMod = 0;
+		CapturedKeyText[0] = '\0';
+		CapturedKeyModText[0] = '\0';
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
@@ -837,7 +835,7 @@ void LoadHotkeysFromDatabase() {
 		int rowCounter = 0;
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 			if (rowCounter < 50) {
-				//Hotkeys[rowCounter].sampleIndex = sqlite3_column_int(stmt, 0);
+				Hotkeys[rowCounter].index = sqlite3_column_int(stmt, 0);
 				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
 				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
 				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
@@ -916,7 +914,7 @@ void ResetNavKeys() {
 void SaveHotkeysToDatabase() {
 	char* zErrMsg = 0;
 	int rc;
-	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?)";
+	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
 	rc = sqlite3_open("hotkeys.db", &db);
 
@@ -931,39 +929,39 @@ void SaveHotkeysToDatabase() {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		/*
-		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].sampleIndex);
+		
+		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].index);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		*/
-		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].keyMod);
+		
+		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyCode);
+		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].keyCode);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 3, Hotkeys[i].modText, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].modText, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].keyText, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 5, Hotkeys[i].keyText, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 5, Hotkeys[i].filePath, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].filePath, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].fileName, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 7, Hotkeys[i].fileName, -1, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
