@@ -37,6 +37,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 
 	InitSQLite();
 	LoadHotkeysFromDatabase();
+	LoadDevicesFromDatabase();
 
 	IMGUI_CHECKVERSION();
 	ImGui::StyleColorsDark();
@@ -218,7 +219,7 @@ void CloseCaptureDevice()
 		ma_engine_uninit(&CaptureEngine.engine);
 		ma_device_uninit(&CaptureEngine.device);
 		CaptureEngine.active = false;
-		SelectDuplexDevice = false;
+		ShowDuplexDevices = false;
 		NumActiveCaptureDevices = 0;
 	}
 
@@ -455,9 +456,10 @@ void DrawGUI() {
 	{
 		if (ImGui::Button("Select Recording Device"))
 			ShowCaptureDeviceList = true;
+
+		if (ShowCaptureDeviceList)
+			SelectCaptureDevice();
 	}
-	if (ShowCaptureDeviceList)
-		SelectCaptureDevice();
 
 	// ---------- Key Capture Window ----------
 	if (ShowKeyCaptureWindow == true) {
@@ -850,19 +852,20 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 	return CallNextHookEx(0, nCode, wParam, lParam);
 }
 
-void LoadHotkeysFromDatabase() {
+void LoadDevicesFromDatabase() {
 	char* errorMessage = NULL;
 	int rc = sqlite3_open("hotkeys.db", &db);
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading devices");
 	}
 
 	else {
 		sqlite3_stmt* stmt;
-		const char* sql = "SELECT * FROM HOTKEYS";
+		const char* sql = "SELECT * FROM PLAYBACK_DEVICES";
 		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-		if (rc != SQLITE_OK) {
+		if (rc != SQLITE_OK) 
+		{
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(errorMessage);
 			return;
@@ -870,7 +873,61 @@ void LoadHotkeysFromDatabase() {
 
 		int rowCounter = 0;
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (rowCounter < 50) {
+			if (rowCounter < MAX_PLAYBACK_DEVICES) 
+			{
+				strcpy(PlaybackEngines[rowCounter].deviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
+		}
+
+		if (rc != SQLITE_DONE) 
+		{
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(errorMessage);
+		}
+		sqlite3_finalize(stmt);
+
+	}
+	sqlite3_close(db);
+
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+	{
+		for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
+		{
+			if (strcmp(pPlaybackDeviceInfos[i].name, PlaybackEngines[j].deviceName) == 0)
+			{
+				PlaybackDeviceSelected[i] = true;
+				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+			}
+		}
+	}
+}
+
+void LoadHotkeysFromDatabase() {
+	char* errorMessage = NULL;
+	int rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) 
+	{
+		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading hotkeys");
+	}
+
+	else 
+	{
+		sqlite3_stmt* stmt;
+		const char* sql = "SELECT * FROM HOTKEYS";
+		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+		if (rc != SQLITE_OK) 
+		{
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(errorMessage);
+			return;
+		}
+
+		int rowCounter = 0;
+		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+			if (rowCounter < MAX_SOUNDS) 
+			{
 				Hotkeys[rowCounter].index = sqlite3_column_int(stmt, 0);
 				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
 				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
@@ -882,7 +939,8 @@ void LoadHotkeysFromDatabase() {
 			}
 		}
 
-		if (rc != SQLITE_DONE) {
+		if (rc != SQLITE_DONE) 
+		{
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(errorMessage);
 		}
@@ -1070,53 +1128,55 @@ void SaveDevicesToDatabase()
 
 void SelectCaptureDevice()
 {
+	int iCaptureDevice = 0;
 	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
-	if (SelectDuplexDevice == false)
+	if (ShowDuplexDevices == false)
 	{
 		ImGui::Text("First, select a recording device.\nThis is usually your microphone.");
 		ImGui::NewLine();
 
-		for (int i = 0; i < CaptureDeviceCount; i++)
-		{
-			if (CaptureDeviceSelected[i] == false)
-			{
-				ImGui::PushID(i);
-				if (ImGui::Button(pCaptureDeviceInfos[i].name))
-				{
-					CaptureDeviceSelected[i] = true;
-					InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
-					SelectDuplexDevice = true;
-				}
-				ImGui::PopID();
-			}
-		}
-	}
-
-	else
-	{
-		ImGui::Text("Now, select where this recording device should play through.\nThis is usually a virtual cable input.");
-		ImGui::NewLine();
-
-		if (NumActivePlaybackDevices == 0)
-		{
-			if (ImGui::Button("Select Playback Device"))
-				ShowPlaybackDeviceList = true;
-		}
-
-		for (int i = 0; i < NumActivePlaybackDevices; i++)
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
 		{
 			ImGui::PushID(i);
-			if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
+			if (ImGui::Button(pCaptureDeviceInfos[i].name))
 			{
-				DuplexDeviceIndex = i;
-				SelectDuplexDevice = false;
-				NumActiveCaptureDevices++;
-				ShowCaptureDeviceList = false;
+				iCaptureDevice = i;
+				CaptureDeviceSelected[i] = true;
+				ShowDuplexDevices = true;
 			}
 			ImGui::PopID();
 		}
 	}
 
+	if (ShowDuplexDevices == true)
+	{
+		ImGui::Text("Now, select where this recording device should play through.\nThis is usually a virtual cable input.");
+		ImGui::NewLine();
+
+		if (NumActivePlaybackDevices > 0)
+		{
+			for (int i = 0; i < NumActivePlaybackDevices; i++)
+			{
+				ImGui::PushID(i);
+				if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
+				{
+					InitCaptureDevice(&pCaptureDeviceInfos[iCaptureDevice].id, &PlaybackEngines[i].device);
+					DuplexDeviceIndex = i;
+					ShowDuplexDevices = false;
+					NumActiveCaptureDevices++;
+					ShowCaptureDeviceList = false;
+				}
+				ImGui::PopID();
+			}
+		}
+
+		else
+		{
+			if (ImGui::Button("Select Playback Device"))
+				ShowPlaybackDeviceList = true;
+		}
+
+	}
 	ImGui::End();
 }
 

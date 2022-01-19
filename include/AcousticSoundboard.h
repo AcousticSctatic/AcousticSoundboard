@@ -16,6 +16,8 @@
 #include "imgui.h"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
+#define MA_ENABLE_ONLY_SPECIFIC_BACKENDS
+#define MA_ENABLE_WASAPI
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 #define MAX_ENGINES 3
@@ -75,7 +77,7 @@ ma_device_info* pCaptureDeviceInfos;
 ma_uint32 CaptureDeviceCount;
 bool* CaptureDeviceSelected;
 int NumActiveCaptureDevices = 0;
-bool SelectDuplexDevice;
+bool ShowDuplexDevices;
 int DuplexDeviceIndex = 0;
 ma_resource_manager ResourceManager;
 
@@ -120,6 +122,7 @@ void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice);
 void InitPlaybackDevice(ma_device_id* deviceId);
 void InitSQLite();
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
+void LoadDevicesFromDatabase();
 void LoadHotkeysFromDatabase();
 void PlayAudio(int iEngine, int iSound, const char* filePath);
 void PrintToLog(const char* fileName, const char* logText);
