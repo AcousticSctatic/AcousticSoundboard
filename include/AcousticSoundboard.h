@@ -3,7 +3,6 @@
 * Dear ImGui - Graphical user interface
 * SQLite3 - A databse engine
 * tinyfiledialogs - A tiny, useful library for file dialogs (file explorer on Windows)
-* libogg - Playing ogg files
 */
 #pragma once
 #include <stdbool.h>
@@ -16,8 +15,6 @@
 #include "imgui.h"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
-#define MA_ENABLE_ONLY_SPECIFIC_BACKENDS
-#define MA_ENABLE_WASAPI
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 #define MAX_ENGINES 3
@@ -26,7 +23,7 @@
 
 //int sampleIndex;
 typedef struct Hotkey {
-	int index;
+	//int index;
 	int keyMod;
 	int keyCode;
 	char modText[MAX_PATH];
@@ -47,6 +44,8 @@ typedef struct capture_engine {
 	bool active;
 	ma_engine engine;
 	ma_device device;
+	char captureDeviceName[256];
+	char duplexDeviceName[256];
 } Capture_Engine;
 
 // GUI Globals

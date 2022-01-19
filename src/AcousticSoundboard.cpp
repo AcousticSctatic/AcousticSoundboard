@@ -25,10 +25,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	if (KeyboardHook == NULL) 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
 
-	// Initialize hotkeys indices (IMPORTANT for the database row numbers)
-	for (int i = 0; i < NUM_SOUNDS; i++)
-		Hotkeys[i].index = i;
-
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -748,7 +744,7 @@ void InitSQLite() {
 	zErrMsg = 0;
 	rc = 0;
 	sql_statement =
-		"CREATE TABLE IF NOT EXISTS PLAYBACK_DEVICES (DEVICE_INDEX INTEGER PRIMARY KEY, NAME TEXT);";
+		"CREATE TABLE IF NOT EXISTS DEVICES (DEVICE_INDEX INTEGER PRIMARY KEY, NAME TEXT);";
 	prepared_statement = NULL;
 	rc = sqlite3_open("hotkeys.db", &db);
 
@@ -856,13 +852,15 @@ void LoadDevicesFromDatabase() {
 	char* errorMessage = NULL;
 	int rc = sqlite3_open("hotkeys.db", &db);
 
-	if (rc) {
+	if (rc) 
+	{
 		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading devices");
 	}
 
-	else {
+	else 
+	{
 		sqlite3_stmt* stmt;
-		const char* sql = "SELECT * FROM PLAYBACK_DEVICES";
+		const char* sql = "SELECT * FROM DEVICES";
 		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
 		if (rc != SQLITE_OK) 
 		{
@@ -878,6 +876,16 @@ void LoadDevicesFromDatabase() {
 				strcpy(PlaybackEngines[rowCounter].deviceName, (const char*)sqlite3_column_text(stmt, 1));
 				rowCounter++;
 			}
+			else if (rowCounter == 2)
+			{
+				strcpy(CaptureEngine.captureDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
+			else if (rowCounter == 3)
+			{
+				strcpy(CaptureEngine.duplexDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
 		}
 
 		if (rc != SQLITE_DONE) 
@@ -890,6 +898,7 @@ void LoadDevicesFromDatabase() {
 	}
 	sqlite3_close(db);
 
+	
 	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
 	{
 		for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
@@ -898,7 +907,41 @@ void LoadDevicesFromDatabase() {
 			{
 				PlaybackDeviceSelected[i] = true;
 				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+				break;
 			}
+		}
+
+		if (NumActivePlaybackDevices == MAX_PLAYBACK_DEVICES)
+		{
+			break;
+		}
+	}
+
+	DuplexDeviceIndex = -1;
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
+		{
+			DuplexDeviceIndex = i;
+			break;
+		}
+	}
+
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+	{
+		if (strcmp(pCaptureDeviceInfos[i].name, CaptureEngine.captureDeviceName) == 0)
+		{
+			CaptureDeviceSelected[i] = true;
+			if (DuplexDeviceIndex >= 0)
+			{
+				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
+				NumActiveCaptureDevices++;
+			}
+			else
+			{
+				PrintToLog("log-error.txt", "Failed to initialize capture device. Duplex device index invalid.");
+			}
+			break;
 		}
 	}
 }
@@ -928,7 +971,6 @@ void LoadHotkeysFromDatabase() {
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 			if (rowCounter < MAX_SOUNDS) 
 			{
-				Hotkeys[rowCounter].index = sqlite3_column_int(stmt, 0);
 				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
 				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
 				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
@@ -1027,7 +1069,7 @@ void SaveHotkeysToDatabase()
 			sqlite3_free(zErrMsg);
 		}
 		
-		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].index);
+		rc = sqlite3_bind_int(prepared_statement, 1, i);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
@@ -1083,7 +1125,7 @@ void SaveDevicesToDatabase()
 {
 	char* zErrMsg = 0;
 	int rc;
-	const char* sql_statement = "REPLACE INTO PLAYBACK_DEVICES(DEVICE_INDEX, NAME) VALUES (?, ?)";
+	const char* sql_statement = "REPLACE INTO DEVICES(DEVICE_INDEX, NAME) VALUES (?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
 	rc = sqlite3_open("hotkeys.db", &db);
 
@@ -1092,7 +1134,8 @@ void SaveDevicesToDatabase()
 		sqlite3_close(db);
 	}
 
-	for (size_t i = 0; i < NumActivePlaybackDevices; i++) {
+	for (int i = 0; i < 4; i++)
+	{
 		rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
@@ -1104,10 +1147,32 @@ void SaveDevicesToDatabase()
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 2, PlaybackEngines[i].deviceName, -1, NULL);
-		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
-			sqlite3_free(zErrMsg);
+
+		if (i < MAX_PLAYBACK_DEVICES)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, PlaybackEngines[i].deviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
+		}
+
+		else if (i == 2)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.captureDeviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
+		}
+
+		else if (i == 3)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.duplexDeviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
 		}
 
 		rc = sqlite3_step(prepared_statement);
@@ -1160,6 +1225,8 @@ void SelectCaptureDevice()
 				if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
 				{
 					InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
+					strcpy(CaptureEngine.captureDeviceName, pCaptureDeviceInfos[CaptureDeviceIndex].name);
+					strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
 					DuplexDeviceIndex = i;
 					ShowDuplexDevices = false;
 					NumActiveCaptureDevices++;
