@@ -76,6 +76,7 @@ int NumActivePlaybackDevices = 0;
 ma_device_info* pCaptureDeviceInfos;
 ma_uint32 CaptureDeviceCount;
 bool* CaptureDeviceSelected;
+int CaptureDeviceIndex;
 int NumActiveCaptureDevices = 0;
 bool ShowDuplexDevices;
 int DuplexDeviceIndex = 0;

@@ -1128,7 +1128,6 @@ void SaveDevicesToDatabase()
 
 void SelectCaptureDevice()
 {
-	int iCaptureDevice = 0;
 	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
 	if (ShowDuplexDevices == false)
 	{
@@ -1140,7 +1139,7 @@ void SelectCaptureDevice()
 			ImGui::PushID(i);
 			if (ImGui::Button(pCaptureDeviceInfos[i].name))
 			{
-				iCaptureDevice = i;
+				CaptureDeviceIndex = i;
 				CaptureDeviceSelected[i] = true;
 				ShowDuplexDevices = true;
 			}
@@ -1160,7 +1159,7 @@ void SelectCaptureDevice()
 				ImGui::PushID(i);
 				if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
 				{
-					InitCaptureDevice(&pCaptureDeviceInfos[iCaptureDevice].id, &PlaybackEngines[i].device);
+					InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
 					DuplexDeviceIndex = i;
 					ShowDuplexDevices = false;
 					NumActiveCaptureDevices++;
