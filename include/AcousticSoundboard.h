@@ -33,7 +33,6 @@ typedef struct Hotkey {
 }Hotkey;
 
 typedef struct playback_engine {
-	bool active;
 	ma_engine engine;
 	ma_device device;
 	ma_sound sounds[MAX_SOUNDS];
@@ -41,7 +40,6 @@ typedef struct playback_engine {
 } Playback_Engine;
 
 typedef struct capture_engine {
-	bool active;
 	ma_engine engine;
 	ma_device device;
 	char captureDeviceName[256];

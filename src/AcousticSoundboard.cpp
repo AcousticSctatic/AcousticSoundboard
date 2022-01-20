@@ -188,23 +188,8 @@ void ClearCapturedKey()
 
 void CloseAudioSystem()
 {
-	for (int i = 0; i < NumActivePlaybackDevices; i++)
-	{
-		if (PlaybackEngines[i].active == true)
-		{
-			ma_engine_uninit(&PlaybackEngines[i].engine);
-			ma_device_uninit(&PlaybackEngines[i].device);
-
-			for (int i = 0; i < NUM_SOUNDS; i++)
-				UnloadSound(i);
-		}
-	}
-
-	if (CaptureEngine.active == true)
-	{
-		ma_engine_uninit(&CaptureEngine.engine);
-		ma_device_uninit(&CaptureEngine.device);
-	}
+	ClosePlaybackDevices();
+	CloseCaptureDevice();
 
 	free(PlaybackDeviceSelected);
 	free(CaptureDeviceSelected);
@@ -213,48 +198,44 @@ void CloseAudioSystem()
 
 void CloseCaptureDevice()
 {
-	if (CaptureEngine.active == true)
+	if (NumActiveCaptureDevices > 0)
 	{
 		ma_engine_uninit(&CaptureEngine.engine);
 		ma_device_uninit(&CaptureEngine.device);
-		CaptureEngine.active = false;
 		ShowDuplexDevices = false;
 		NumActiveCaptureDevices = 0;
 		CaptureEngine.captureDeviceName[0] = '\0';
 		CaptureEngine.duplexDeviceName[0] = '\0';
-	}
 
-	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-		CaptureDeviceSelected[i] = false;
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+			CaptureDeviceSelected[i] = false;
+
+		NumActiveCaptureDevices = 0;
+	}
 }
 
 void ClosePlaybackDevices()
 {
 	for (int i = 0; i < NumActivePlaybackDevices; i++)
 	{
-		if (PlaybackEngines[i].active == true)
+		ma_engine_uninit(&PlaybackEngines[i].engine);
+		ma_device_uninit(&PlaybackEngines[i].device);
+
+		for (int j = 0; j < NUM_SOUNDS; j++)
 		{
-			ma_engine_uninit(&PlaybackEngines[i].engine);
-			ma_device_uninit(&PlaybackEngines[i].device);
-
-			for (int j = 0; j < NUM_SOUNDS; j++)
+			if (SoundLoaded[i][j] == true)
 			{
-				if (SoundLoaded[i][j] == true)
-				{
-					ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
-					SoundLoaded[i][j] = false;
-				}
+				ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
+				SoundLoaded[i][j] = false;
 			}
-
-			PlaybackEngines[i].active = false;
-			PlaybackEngines[i].deviceName[0] = '\0';
 		}
+		PlaybackEngines[i].deviceName[0] = '\0';
 	}
+
+	NumActivePlaybackDevices = 0;
 
 	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
 		PlaybackDeviceSelected[i] = false;
-
-	NumActivePlaybackDevices = 0;
 }
 
 bool CreateDeviceD3D(HWND hWnd)
@@ -352,18 +333,12 @@ void DrawGUI()
 		ImGui::PushID(i);
 		if (ImGui::Button("Reset") == true) 
 		{
-			if (Hotkeys[i].filePath[0] != '\0') 
-			{
-				Hotkeys[i].fileName[0] = '\0';
-				Hotkeys[i].filePath[0] = '\0';
-			}
+			Hotkeys[i].fileName[0] = '\0';
+			Hotkeys[i].filePath[0] = '\0';
 
 			for (int j = 0; j < NumActivePlaybackDevices; j++)
 			{
-				if (PlaybackEngines[j].active == true)
-				{
-					UnloadSound(i);
-				}
+				UnloadSound(i);
 			}
 		}
 		ImGui::PopID();
@@ -424,10 +399,8 @@ void DrawGUI()
 	{
 		if (ImGui::Button("Close Devices"))
 		{
-			if (NumActivePlaybackDevices > 0)
-				ClosePlaybackDevices();
-			if (NumActiveCaptureDevices > 0)
-				CloseCaptureDevice();
+			ClosePlaybackDevices();
+			CloseCaptureDevice();
 		}
 	}
 
@@ -451,7 +424,7 @@ void DrawGUI()
 	}
 	ImGui::EndTable();
 
-	if (CaptureEngine.active == false)
+	if (NumActiveCaptureDevices <= 0)
 	{
 		if (ImGui::Button("Select Recording Device"))
 			ShowCaptureDeviceList = true;
@@ -665,7 +638,7 @@ void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
 		// Handle error failed to start engine
 	}
 
-	CaptureEngine.active = true;
+	NumActiveCaptureDevices++;
 }
 
 void InitPlaybackDevice(ma_device_id* deviceId)
@@ -700,7 +673,6 @@ void InitPlaybackDevice(ma_device_id* deviceId)
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
-	PlaybackEngines[NumActivePlaybackDevices].active = true;
 	NumActivePlaybackDevices++;
 }
 
@@ -827,10 +799,7 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 						if (hotkeyFound == true) {
 							for (int j = 0; j < NumActivePlaybackDevices; j++)
 							{
-								if (PlaybackEngines[j].active == true)
-								{
-									PlayAudio(j, i, Hotkeys[i].filePath);
-								}
+								PlayAudio(j, i, Hotkeys[i].filePath);
 							}
 							break; // Break out of the "sound search" for loop
 						}
@@ -933,7 +902,6 @@ void LoadDevicesFromDatabase() {
 			if (DuplexDeviceIndex >= 0)
 			{
 				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
-				NumActiveCaptureDevices++;
 			}
 			else
 			{
@@ -1227,7 +1195,6 @@ void SelectCaptureDevice()
 					strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
 					DuplexDeviceIndex = i;
 					ShowDuplexDevices = false;
-					NumActiveCaptureDevices++;
 					ShowCaptureDeviceList = false;
 				}
 				ImGui::PopID();
@@ -1269,13 +1236,10 @@ void UnloadSound(int iSound)
 {
 	for (int i = 0; i < NumActivePlaybackDevices; i++)
 	{
-		if (PlaybackEngines[i].active == true)
+		if (SoundLoaded[i][iSound] == true)
 		{
-			if (SoundLoaded[i][iSound] == true)
-			{
-				ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
-				SoundLoaded[i][iSound] = false;
-			}
+			ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
+			SoundLoaded[i][iSound] = false;
 		}
 	}
 }
