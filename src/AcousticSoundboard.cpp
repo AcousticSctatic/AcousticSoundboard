@@ -28,24 +28,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
-	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
+	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f);
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX9_Init(g_pd3dDevice);
 
 	InitSQLite();
 	LoadHotkeysFromDatabase();
 	LoadDevicesFromDatabase();
 
-	IMGUI_CHECKVERSION();
-	ImGui::StyleColorsDark();
-	ImGui_ImplWin32_Init(hwnd);
-	ImGui_ImplDX9_Init(g_pd3dDevice);
-	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
-
 	while (WindowShouldClose == false) 
 	{ // Main loop
 		Update();
 	} 
-	// Close
-	
+
 	SaveHotkeysToDatabase();
 	SaveDevicesToDatabase();
 	ImGui_ImplDX9_Shutdown();
@@ -368,7 +364,20 @@ void DrawGUI()
 	}
 	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
+
 	ImGui::NewLine();
+	if (NumActivePlaybackDevices > 0 || NumActiveCaptureDevices > 0)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(150, 0, 0, 255));
+		if (ImGui::Button("Close Devices"))
+		{
+			ClosePlaybackDevices();
+			CloseCaptureDevice();
+		}
+		ImGui::PopStyleColor();
+	}
+	ImGui::NewLine();
+
 	ImGui::BeginTable("Playback Devices", 1);
 	ImGui::TableSetupColumn("Playback Devices");
 	ImGui::TableHeadersRow();
@@ -395,14 +404,7 @@ void DrawGUI()
 	if (ShowPlaybackDeviceList)
 		SelectPlaybackDevice();
 
-	if (NumActivePlaybackDevices > 0 || NumActiveCaptureDevices > 0)
-	{
-		if (ImGui::Button("Close Devices"))
-		{
-			ClosePlaybackDevices();
-			CloseCaptureDevice();
-		}
-	}
+
 
 	ImGui::BeginTable("Capture Device", 1);
 	ImGui::TableSetupColumn("Capture Device");
