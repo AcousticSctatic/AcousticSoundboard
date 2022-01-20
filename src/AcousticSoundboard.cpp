@@ -21,7 +21,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	UpdateWindow(hwnd);
 
 	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
-
 	if (KeyboardHook == NULL) 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
 
@@ -44,15 +43,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	while (WindowShouldClose == false) 
 	{ // Main loop
 		Update();
-	}
-
+	} 
 	// Close
-	if (Autosave == true)
-	{
-		SaveHotkeysToDatabase();
-		SaveDevicesToDatabase();
-	}
-
+	
+	SaveHotkeysToDatabase();
+	SaveDevicesToDatabase();
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
@@ -183,6 +178,14 @@ void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
 }
 
+void ClearCapturedKey() 
+{
+	CapturedKeyCode = 0;
+	CapturedKeyMod = 0;
+	CapturedKeyText[0] = '\0';
+	CapturedKeyModText[0] = '\0';
+}
+
 void CloseAudioSystem()
 {
 	for (int i = 0; i < NumActivePlaybackDevices; i++)
@@ -217,6 +220,8 @@ void CloseCaptureDevice()
 		CaptureEngine.active = false;
 		ShowDuplexDevices = false;
 		NumActiveCaptureDevices = 0;
+		CaptureEngine.captureDeviceName[0] = '\0';
+		CaptureEngine.duplexDeviceName[0] = '\0';
 	}
 
 	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
@@ -242,6 +247,7 @@ void ClosePlaybackDevices()
 			}
 
 			PlaybackEngines[i].active = false;
+			PlaybackEngines[i].deviceName[0] = '\0';
 		}
 	}
 
@@ -270,7 +276,8 @@ bool CreateDeviceD3D(HWND hWnd)
 	return true;
 }
 
-void DrawGUI() {
+void DrawGUI() 
+{
 	ImGui_ImplDX9_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
@@ -322,20 +329,18 @@ void DrawGUI() {
 		ImGui::PopID();
 
 		ImGui::SameLine();
-		if (Hotkeys[i].modText[0] != '\0') {
-			ImGui::Text("%s", Hotkeys[i].modText);
-		}
+		ImGui::Text("%s", Hotkeys[i].modText);
 		ImGui::SameLine();
-		if (Hotkeys[i].keyText[0] != '\0') {
-			ImGui::Text("%s", Hotkeys[i].keyText);
-		}
+		ImGui::Text("%s", Hotkeys[i].keyText);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
-		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
+		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) 
+		{
 			UnloadSound(i);
 			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
 			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
-			if (AudioFilePath != NULL) {
+			if (AudioFilePath != NULL) 
+			{
 				strcpy(Hotkeys[i].filePath, AudioFilePath);
 				GetFileNameFromPath(Hotkeys[i].fileName, AudioFilePath);
 			}
@@ -388,7 +393,6 @@ void DrawGUI() {
 	}
 	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
-	if (ImGui::Checkbox("Autosave", &Autosave) == true) {}
 	ImGui::NewLine();
 	ImGui::BeginTable("Playback Devices", 1);
 	ImGui::TableSetupColumn("Playback Devices");
@@ -416,10 +420,15 @@ void DrawGUI() {
 	if (ShowPlaybackDeviceList)
 		SelectPlaybackDevice();
 
-	if (NumActivePlaybackDevices > 0)
+	if (NumActivePlaybackDevices > 0 || NumActiveCaptureDevices > 0)
 	{
-		if (ImGui::Button("Close Playback Devices"))
-			ClosePlaybackDevices();
+		if (ImGui::Button("Close Devices"))
+		{
+			if (NumActivePlaybackDevices > 0)
+				ClosePlaybackDevices();
+			if (NumActiveCaptureDevices > 0)
+				CloseCaptureDevice();
+		}
 	}
 
 	ImGui::BeginTable("Capture Device", 1);
@@ -441,12 +450,6 @@ void DrawGUI() {
 		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
 	}
 	ImGui::EndTable();
-
-	if (CaptureEngine.active == true)
-	{
-		if (ImGui::Button("Close Capture Device"))
-			CloseCaptureDevice();
-	}
 
 	if (CaptureEngine.active == false)
 	{
@@ -478,9 +481,9 @@ void DrawGUI() {
 			if (CapturedKeyCode == 0) 
 			{
 				Hotkeys[CapturedKeyIndex].keyCode = 0;
+				Hotkeys[CapturedKeyIndex].keyMod = 0;
 				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
 				Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].keyMod = 0;
 			}
 
 			else 
@@ -510,6 +513,7 @@ void DrawGUI() {
 
 			CaptureKeys = false;
 			ShowKeyCaptureWindow = false;
+			ClearCapturedKey();
 		}
 
 		ImGui::NewLine();
@@ -519,10 +523,7 @@ void DrawGUI() {
 			Hotkeys[CapturedKeyIndex].keyCode = 0;
 			Hotkeys[CapturedKeyIndex].keyMod = 0;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			CapturedKeyCode = 0;
-			CapturedKeyMod = 0;
-			CapturedKeyText[0] = '\0';
-			CapturedKeyModText[0] = '\0';
+			ClearCapturedKey();
 		}
 		ImGui::End();
 	}
@@ -540,10 +541,7 @@ void DrawGUI() {
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
-		CapturedKeyCode = 0;
-		CapturedKeyMod = 0;
-		CapturedKeyText[0] = '\0';
-		CapturedKeyModText[0] = '\0';
+		ClearCapturedKey();
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
@@ -1238,8 +1236,7 @@ void SelectCaptureDevice()
 
 		else
 		{
-			if (ImGui::Button("Select Playback Device"))
-				ShowPlaybackDeviceList = true;
+			ImGui::Text("You need to select a playback device first.");
 		}
 
 	}
