@@ -50,13 +50,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		}
 	} 
 
-	SaveHotkeysToDatabase();
 	SaveDevicesToDatabase();
+	CloseAudioSystem();
+	DestroyWindow(hwnd);
+	SaveHotkeysToDatabase();
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
-	CloseAudioSystem();
-	DestroyWindow(hwnd);
 	UnregisterClass(wc.lpszClassName, wc.hInstance);
 
 	return 0;
