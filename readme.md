@@ -1,5 +1,3 @@
-![image](https://user-images.githubusercontent.com/64415017/150455202-a481de01-55de-4bcd-8bcb-aead82a3b551.png)
-
 Acoustic Soundboard is a program for Windows built with the DearImGui and miniaudio libraries. There is no installation required, simply unzip the contents of this folder wherever you like. This soundboard strives to be an easy to use, lightweight program that can play audio files to others while allowing the user to hear what ia played and still use their microphone normally. To achieve this, you will first need to install a virtual audio cable such as this one:
 https://vb-audio.com/Cable/
 
