@@ -117,7 +117,7 @@ void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource);
 int InitAudioSystem();
 void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice);
-void InitPlaybackDevice(ma_device_id* deviceId);
+void InitPlaybackDevice(ma_device_id* deviceId, char* name);
 void InitSQLite();
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
 void LoadDevicesFromDatabase();

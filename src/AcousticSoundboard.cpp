@@ -51,6 +51,22 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	} 
 
 	SaveDevicesToDatabase();
+	PrintToLog("log-save.txt", "----------------------------------");
+	char buffer[100];
+	snprintf(buffer, 100, "Active playback devices: %d", NumActivePlaybackDevices);
+	PrintToLog("log-save.txt", buffer);
+	snprintf(buffer, 100, "Active capture devices: %d", NumActiveCaptureDevices);
+	PrintToLog("log-save.txt", buffer);
+	PrintToLog("log-save.txt", "----------------------------------");
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
+	{
+		PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
+	}
+	PrintToLog("log-save.txt", CaptureEngine.captureDeviceName);
+	PrintToLog("log-save.txt", CaptureEngine.duplexDeviceName);
+	PrintToLog("log-save.txt", "----------------------------------");
+	PrintToLog("log-save.txt", "\n");
+
 	CloseAudioSystem();
 	DestroyWindow(hwnd);
 	SaveHotkeysToDatabase();
@@ -386,9 +402,16 @@ void DrawGUI()
 	}
 	ImGui::NewLine();
 
+	ImGui::Text("Last known playback");
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
+	{
+		ImGui::Text("%s", PlaybackEngines[i].deviceName);
+	}
+
 	ImGui::BeginTable("Playback Devices", 1);
 	ImGui::TableSetupColumn("Playback Devices");
 	ImGui::TableHeadersRow();
+
 	for (int i = 0; i < PlaybackDeviceCount; i++)
 	{
 		if (PlaybackDeviceSelected[i] == true)
@@ -651,7 +674,7 @@ void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
 	NumActiveCaptureDevices++;
 }
 
-void InitPlaybackDevice(ma_device_id* deviceId)
+void InitPlaybackDevice(ma_device_id* deviceId, char* name)
 {
 	ma_device_config deviceConfig;
 	ma_engine_config engineConfig;
@@ -683,6 +706,7 @@ void InitPlaybackDevice(ma_device_id* deviceId)
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
+	strcpy(PlaybackEngines[NumActivePlaybackDevices].deviceName, name);
 	NumActivePlaybackDevices++;
 }
 
@@ -876,32 +900,22 @@ void LoadDevicesFromDatabase() {
 	sqlite3_close(db);
 	
 	DuplexDeviceIndex = -1;
+	PrintToLog("log-save.txt", "Try loading playback device");
 	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
-		if (PlaybackEngines[i].deviceName[0] != '\0')
+		PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
+		for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 		{
-			for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
+			if (strcmp(pPlaybackDeviceInfos[j].name, PlaybackEngines[i].deviceName) == 0)
 			{
-				if (strcmp(pPlaybackDeviceInfos[j].name, PlaybackEngines[i].deviceName) == 0)
-				{
-					PlaybackDeviceSelected[j] = true;
-					InitPlaybackDevice(&pPlaybackDeviceInfos[j].id);
-					break;
-				}
-
-				else if (j == PlaybackDeviceCount - 1)
-				{
-					PlaybackEngines[i].deviceName[0] = '\0';
-					PrintToLog("log-error.txt", "Failed to initialize last known playback device. Playback device not found.");
-				}
-			}
-
-			if (CaptureEngine.duplexDeviceName[0] != '\0');
-			{
+				PlaybackDeviceSelected[j] = true;
 				if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
 				{
-					DuplexDeviceIndex = i;
+					DuplexDeviceIndex = NumActivePlaybackDevices;
 				}
+
+				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, pPlaybackDeviceInfos[j].name);
+				break;
 			}
 		}
 	}
@@ -917,14 +931,7 @@ void LoadDevicesFromDatabase() {
 				break;
 			}
 		}
-		PrintToLog("log-error.txt", "Failed to initialize last known capture device. Capture device not found.");
 	}
-
-	else
-	{
-		PrintToLog("log-error.txt", "Failed to initialize last known capture device. Duplex device not found.");
-	}
-
 }
 
 void LoadHotkeysFromDatabase() {
@@ -1236,8 +1243,8 @@ void SelectPlaybackDevice()
 			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
 			{
 				PlaybackDeviceSelected[i] = true;
-				strcpy(PlaybackEngines[NumActivePlaybackDevices].deviceName, pPlaybackDeviceInfos[i].name);
-				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+
+				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id, pPlaybackDeviceInfos[i].name);
 			}
 			ImGui::PopID();
 		}
