@@ -1,345 +1,276 @@
 #include "AcousticSoundboard.h"
 
-int main(int argc, char** argv) {
-	Initialize();
+int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
+{
+	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, Win32Callback, 0L, 0L,
+		GetModuleHandleW(NULL), LoadIcon(hInstance, MAKEINTRESOURCE(101)),
+		NULL, NULL, NULL, (L"Acoustic Soundboard"), NULL };
+	RegisterClassEx(&wc);
+	HWND hwnd = CreateWindow(wc.lpszClassName, (L"Acoustic Soundboard"),
+		WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
 
-	while (WindowShouldClose == false) {
-		Update();
+	if (!CreateDeviceD3D(hwnd))
+		return 1;
+
+	if (InitAudioSystem() < 0) 
+	{
+		// Handle error
 	}
 
-	Close();
+	ShowWindow(hwnd, SW_SHOWDEFAULT);
+	UpdateWindow(hwnd);
 
-	return 0;
-}
-
-void Initialize() {
 	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
-
-	if (KeyboardHook == NULL) {
+	if (KeyboardHook == NULL) 
 		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
-	}
 
-	// Initialize hotkeys indices
-	for (int i = 0; i < NUM_SOUNDS; i++) {
-		Hotkeys[i].sampleIndex = i;
-		Samples[i] = NULL;
-	}
-
-	SDL_Init(SDL_INIT_EVERYTHING);
-	// GL 3.0 + GLSL 130
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
-	Window = SDL_CreateWindow("Acoustic Soundboard", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720,
-		SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI);
-
-	GLContext = SDL_GL_CreateContext(Window);
-	SDL_GL_MakeCurrent(Window, GLContext);
-	SDL_GL_SetSwapInterval(1); // Enable vsync
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
-	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 18.0f);
-	ImGui_ImplSDL2_InitForOpenGL(Window, GLContext);
-	const char* glsl_version = "#version 130";
-	ImGui_ImplOpenGL3_Init(glsl_version);
-
-	CurrentPage = 1;
-
-	for (size_t i = 0; i < NUM_CHANNELS; i++) {
-		ChannelStates[i].isAvailable = true;
-	}
-
-	Mix_Init(0);
-	Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, NUM_CHANNELS, 4096);
-	size_t channelsAllocated = Mix_AllocateChannels(NUM_CHANNELS);
-	channelFinished = &ResetChannel;
-	Mix_ChannelFinished(channelFinished);
-	NumPlaybackDevices = SDL_GetNumAudioDevices(0);
-	PlaybackDevices = (char**)malloc(sizeof(char*) * NumPlaybackDevices);
-	if (PlaybackDevices != NULL) {
-		for (int i = 0; i < NumPlaybackDevices; i++) {
-			PlaybackDevices[i] = _strdup(SDL_GetAudioDeviceName(i, 0));
-		}
-		SelectedPlaybackDevice = PlaybackDevices[0];
-	}
+	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f);
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX9_Init(g_pd3dDevice);
 
 	InitSQLite();
 	LoadHotkeysFromDatabase();
+	LoadDevicesFromDatabase();
+
+	unsigned int LoopCounter = 0;
+	while (WindowShouldClose == false) 
+	{
+		MSG msg;
+		while (GetMessageW(&msg, NULL, 0U, 0U))
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+			DrawGUI();
+			ResetNavKeys();
+		}
+	} 
+
+	SaveHotkeysToDatabase();
+	SaveDevicesToDatabase();
+	ImGui_ImplDX9_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+	CloseAudioSystem();
+	DestroyWindow(hwnd);
+	UnregisterClass(wc.lpszClassName, wc.hInstance);
+
+	return 0;
 }
 
-void InitSQLite() {
-	char* zErrMsg = 0;
-	int rc;
-	const char* sql_statement =
-		"CREATE TABLE IF NOT EXISTS HOTKEYS (SAMPLE_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, FILE_PATH TEXT, FILE_NAME TEXT);";
-	sqlite3_stmt* prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
+LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
+		return true;
 
-	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
-		sqlite3_close(db);
+	switch (message)
+	{		
+	case WM_SYSKEYDOWN: // Falls through
+	case WM_KEYDOWN: 
+	{
+		switch (wParam)
+		{
+		case VK_RETURN: UserPressedReturn = true;
+			break;
+		case VK_ESCAPE: UserPressedEscape = true;
+			break;
+		case VK_BACK: UserPressedBackspace = true;
+			break;
+		default:
+			break;
+		}
+
+		if (CaptureKeys == true)
+		{
+			bool ignoreKey = false;
+			switch (wParam)
+			{ // These fall through. We are purposefully ignoring these keys.
+			case VK_CONTROL:
+			case VK_SHIFT:
+			case VK_MENU:
+			case VK_UP:
+			case VK_RIGHT:
+			case VK_DOWN:
+			case VK_LEFT:
+			case VK_RETURN:
+			case VK_ESCAPE:
+			case VK_BACK:
+				ignoreKey = true;
+				break;
+			case VK_TAB: strcpy(CapturedKeyText, "TAB");
+				break;
+			case VK_F1: strcpy(CapturedKeyText, "F1");
+				break;
+			case VK_F2: strcpy(CapturedKeyText, "F2");
+				break;
+			case VK_F3: strcpy(CapturedKeyText, "F3");
+				break;
+			case VK_F4: strcpy(CapturedKeyText, "F4");
+				break;
+			case VK_F5: strcpy(CapturedKeyText, "F5");
+				break;
+			case VK_F6: strcpy(CapturedKeyText, "F6");
+				break;
+			case VK_F7: strcpy(CapturedKeyText, "F7");
+				break;
+			case VK_F8: strcpy(CapturedKeyText, "F8");
+				break;
+			case VK_F9: strcpy(CapturedKeyText, "F9");
+				break;
+			case VK_F10: strcpy(CapturedKeyText, "F10");
+				break;
+			case VK_F11: strcpy(CapturedKeyText, "F11");
+				break;
+			case VK_F12: strcpy(CapturedKeyText, "F12");
+				break;
+			default:
+				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
+				break;
+			}
+
+			if (ignoreKey == false)
+			{
+				CapturedKeyCode = wParam;
+				CapturedKeyMod = 0;
+				CapturedKeyModText[0] = '\0';
+				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+				if (shiftDown) {
+					strcpy(CapturedKeyModText, "SHIFT +");
+					CapturedKeyMod = VK_SHIFT;
+				}
+				else if (ctrlDown) {
+					strcpy(CapturedKeyModText, "CTRL +");
+					CapturedKeyMod = VK_CONTROL;
+				}
+				else if (altDown) {
+					strcpy(CapturedKeyModText, "ALT +");
+					CapturedKeyMod = VK_MENU;
+				}
+			}
+		}
+		break;
 	}
-
-	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
-	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
+	case WM_SIZE:
+	{
+		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+		{
+			g_d3dpp.BackBufferWidth = LOWORD(lParam);
+			g_d3dpp.BackBufferHeight = HIWORD(lParam);
+			ResetDeviceD3D();
+		}
+		break;
 	}
-
-	rc = sqlite3_step(prepared_statement);
-	if (rc != SQLITE_DONE) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
+	case WM_CLOSE:
+		PostQuitMessage(0);
+		WindowShouldClose = true;
+		break;
+	default:
+		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
-
-	rc = sqlite3_finalize(prepared_statement);
-	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
-		sqlite3_free(zErrMsg);
-	}
-
-	sqlite3_close(db);
+	return 0;
 }
 
-int ConvertSDLKeyToWin32Key(SDL_Keycode SDLK) {
-	int vkey;
-	switch (SDLK) {
-	case SDLK_F1:
-		vkey = VK_F1;
-		break;
-	case SDLK_F2:
-		vkey = VK_F2;
-		break;
-	case SDLK_F3:
-		vkey = VK_F3;
-		break;
-	case SDLK_F4:
-		vkey = VK_F4;
-		break;
-	case SDLK_F5:
-		vkey = VK_F5;
-		break;
-	case SDLK_F6:
-		vkey = VK_F6;
-		break;
-	case SDLK_F7:
-		vkey = VK_F7;
-		break;
-	case SDLK_F8:
-		vkey = VK_F8;
-		break;
-	case SDLK_F9:
-		vkey = VK_F9;
-		break;
-	case SDLK_F10:
-		vkey = VK_F10;
-		break;
-	case SDLK_F11:
-		vkey = VK_F11;
-		break;
-	case SDLK_F12:
-		vkey = VK_F12;
-		break;
-	case SDLK_BACKQUOTE:
-		vkey = VK_OEM_3;
-		break;
-	case SDLK_q:
-		vkey = 'Q';
-		break;
-	case SDLK_w:
-		vkey = 'W';
-		break;
-	case SDLK_e:
-		vkey = 'E';
-		break;
-	case SDLK_r:
-		vkey = 'R';
-		break;
-	case SDLK_t:
-		vkey = 'T';
-		break;
-	case SDLK_y:
-		vkey = 'Y';
-		break;
-	case SDLK_u:
-		vkey = 'U';
-		break;
-	case SDLK_i:
-		vkey = 'I';
-		break;
-	case SDLK_o:
-		vkey = 'O';
-		break;
-	case SDLK_p:
-		vkey = 'P';
-		break;
-	case SDLK_a:
-		vkey = 'A';
-		break;
-	case SDLK_s:
-		vkey = 'S';
-		break;
-	case SDLK_d:
-		vkey = 'D';
-		break;
-	case SDLK_f:
-		vkey = 'F';
-		break;
-	case SDLK_g:
-		vkey = 'G';
-		break;
-	case SDLK_h:
-		vkey = 'H';
-		break;
-	case SDLK_j:
-		vkey = 'J';
-		break;
-	case SDLK_k:
-		vkey = 'K';
-		break;
-	case SDLK_l:
-		vkey = 'L';
-		break;
-	case SDLK_z:
-		vkey = 'Z';
-		break;
-	case SDLK_x:
-		vkey = 'X';
-		break;
-	case SDLK_c:
-		vkey = 'C';
-		break;
-	case SDLK_v:
-		vkey = 'V';
-		break;
-	case SDLK_b:
-		vkey = 'B';
-		break;
-	case SDLK_n:
-		vkey = 'N';
-		break;
-	case SDLK_m:
-		vkey = 'M';
-		break;
-	case SDLK_MINUS:
-		vkey = VK_SUBTRACT;
-		break;
-	case SDLK_PLUS:
-		vkey = VK_ADD;
-		break;
-	case SDLK_LEFTBRACKET:
-		vkey = VK_OEM_4; //  '[{' for US
-		break;
-	case SDLK_RIGHTBRACKET:
-		vkey = 0xDD; //  ']}' for US
-		break;
-	case SDLK_BACKSLASH:
-		vkey = 0xDC; //  '\|' for US
-		break;
-	case SDLK_COLON:
-		vkey = VK_OEM_1; // ';:' for US
-		break;
-	case SDLK_QUOTE:
-		vkey = VK_OEM_7; //  ''"' for US
-		break;
-	case SDLK_COMMA:
-		vkey = VK_OEM_COMMA; // ',' any country
-		break;
-	case SDLK_PERIOD:
-		vkey = VK_OEM_PERIOD; // '.' any country
-		break;
-	case SDLK_SLASH:
-		vkey = VK_OEM_2; // '/?' for US
-		break;
-	case SDLK_INSERT:
-		vkey = VK_INSERT;
-		break;
-	case SDLK_HOME:
-		vkey = VK_HOME;
-		break;
-	case SDLK_PAGEUP:
-		vkey = VK_PRIOR;
-		break;
-	case SDLK_DELETE:
-		vkey = VK_DELETE;
-		break;
-	case SDLK_END:
-		vkey = VK_END;
-		break;
-	case SDLK_PAGEDOWN:
-		vkey = VK_NEXT;
-		break;
-	case SDLK_KP_7:
-		vkey = VK_NUMPAD7;
-		break;
-	case SDLK_KP_8:
-		vkey = VK_NUMPAD8;
-		break;
-	case SDLK_KP_9:
-		vkey = VK_NUMPAD9;
-		break;
-	case SDLK_KP_4:
-		vkey = VK_NUMPAD4;
-		break;
-	case SDLK_KP_5:
-		vkey = VK_NUMPAD5;
-		break;
-	case SDLK_KP_6:
-		vkey = VK_NUMPAD6;
-		break;
-	case SDLK_KP_1:
-		vkey = VK_NUMPAD1;
-		break;
-	case SDLK_KP_2:
-		vkey = VK_NUMPAD2;
-		break;
-	case SDLK_KP_3:
-		vkey = VK_NUMPAD3;
-		break;
-	case SDLK_KP_DIVIDE:
-		vkey = VK_DIVIDE;
-		break;
-	case SDLK_KP_MULTIPLY:
-		vkey = VK_MULTIPLY;
-		break;
-	case SDLK_KP_MINUS:
-		vkey = VK_SUBTRACT;
-		break;
-	case SDLK_KP_PLUS:
-		vkey = VK_ADD;
-		break;
-	case SDLK_KP_DECIMAL:
-		vkey = VK_DECIMAL;
-		break;
-	case SDLK_UP:
-		vkey = VK_UP;
-		break;
-	case SDLK_LEFT:
-		vkey = VK_LEFT;
-		break;
-	case SDLK_DOWN:
-		vkey = VK_DOWN;
-		break;
-	case SDLK_RIGHT:
-		vkey = VK_RIGHT;
-		break;
-	default: vkey = SDLK;
-		break;
-	}
-	return vkey;
+void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	(void)pInput;
+	ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
 }
 
-void DrawGUI() {
-	// ---------- Main window ----------
-	ImGui::Begin("Acoustic Soundboard", NULL, GUIWindowFlags);
-	// ---------- Main table ----------
+void ClearCapturedKey() 
+{
+	CapturedKeyCode = 0;
+	CapturedKeyMod = 0;
+	CapturedKeyText[0] = '\0';
+	CapturedKeyModText[0] = '\0';
+}
+
+void CloseAudioSystem()
+{
+	ClosePlaybackDevices();
+	CloseCaptureDevice();
+
+	free(PlaybackDeviceSelected);
+	free(CaptureDeviceSelected);
+	ma_resource_manager_uninit(&ResourceManager);
+}
+
+void CloseCaptureDevice()
+{
+	if (NumActiveCaptureDevices > 0)
+	{
+		ma_engine_uninit(&CaptureEngine.engine);
+		ma_device_uninit(&CaptureEngine.device);
+		ShowDuplexDevices = false;
+		NumActiveCaptureDevices = 0;
+		CaptureEngine.captureDeviceName[0] = '\0';
+		CaptureEngine.duplexDeviceName[0] = '\0';
+
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+			CaptureDeviceSelected[i] = false;
+
+		NumActiveCaptureDevices = 0;
+	}
+}
+
+void ClosePlaybackDevices()
+{
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		ma_engine_uninit(&PlaybackEngines[i].engine);
+		ma_device_uninit(&PlaybackEngines[i].device);
+
+		for (int j = 0; j < NUM_SOUNDS; j++)
+		{
+			if (SoundLoaded[i][j] == true)
+			{
+				ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
+				SoundLoaded[i][j] = false;
+			}
+		}
+		PlaybackEngines[i].deviceName[0] = '\0';
+	}
+
+	NumActivePlaybackDevices = 0;
+
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		PlaybackDeviceSelected[i] = false;
+}
+
+bool CreateDeviceD3D(HWND hWnd)
+{
+	if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
+		return false;
+
+	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
+	g_d3dpp.Windowed = TRUE;
+	g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	g_d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
+	g_d3dpp.EnableAutoDepthStencil = TRUE;
+	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
+	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+	if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
+		D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
+		return false;
+
+	return true;
+}
+
+void DrawGUI() 
+{
+	ImGui_ImplDX9_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+	ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(viewport->WorkPos);
+	ImGui::SetNextWindowSize(viewport->WorkSize);
+	ImGui::Begin("Audio", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	// ---------- Hotkeys table ----------
 	ImGui::BeginTable("Sounds", 3, GUITableFlags);
 	ImGui::TableSetupColumn(" #  Hotkey", ImGuiTableColumnFlags_WidthFixed);
 	ImGui::TableSetupColumn("File");
@@ -376,7 +307,6 @@ void DrawGUI() {
 		ImGui::SameLine();
 		ImGui::PushID(i);
 		if (ImGui::Button("Set Hotkey") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			if (UserPressedReturn) UserPressedReturn = false;
 			CaptureKeys = true;
 			CapturedKeyIndex = i;
 			ShowKeyCaptureWindow = true;
@@ -384,20 +314,18 @@ void DrawGUI() {
 		ImGui::PopID();
 
 		ImGui::SameLine();
-		if (Hotkeys[i].modText != NULL) {
-			ImGui::Text("%s", Hotkeys[i].modText);
-		}
+		ImGui::Text("%s", Hotkeys[i].modText);
 		ImGui::SameLine();
-		if (Hotkeys[i].keyText != NULL) {
-			ImGui::Text("%s", Hotkeys[i].keyText);
-		}
+		ImGui::Text("%s", Hotkeys[i].keyText);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
-		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			StopAllChannels();
+		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) 
+		{
+			UnloadSound(i);
 			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
 			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
-			if (AudioFilePath != NULL) {
+			if (AudioFilePath != NULL) 
+			{
 				strcpy(Hotkeys[i].filePath, AudioFilePath);
 				GetFileNameFromPath(Hotkeys[i].fileName, AudioFilePath);
 			}
@@ -407,19 +335,22 @@ void DrawGUI() {
 		ImGui::Text(Hotkeys[i].fileName);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
-		if (ImGui::Button("Reset") == true) {
-			if (Hotkeys[i].filePath[0] != '\0') {
-				Hotkeys[i].fileName[0] = '\0';
-				Hotkeys[i].filePath[0] = '\0';
+		if (ImGui::Button("Reset") == true) 
+		{
+			Hotkeys[i].fileName[0] = '\0';
+			Hotkeys[i].filePath[0] = '\0';
+
+			for (int j = 0; j < NumActivePlaybackDevices; j++)
+			{
+				UnloadSound(i);
 			}
-			StopAllChannels();
 		}
 		ImGui::PopID();
 	}
-	ImGui::EndTable();
-	// ---------- END Main table ----------
+	ImGui::EndTable(); // ---------- END Hotkeys table ----------
+	
 
-	// ---------- Page display ----------
+		// ---------- Page display ----------
 	ImGui::Text("%s %d %s %d", "Page ", CurrentPage, " / ", 5);
 	if (ImGui::Button("< Previous Page") == true) {
 		if (CurrentPage > 1) {
@@ -432,25 +363,85 @@ void DrawGUI() {
 		if (CurrentPage < 5) {
 			CurrentPage++;
 		}
-	}
-	// ---------- END Page display ----------
+	} // ---------- END Page display ----------
 
-	if (ImGui::Button("Playback Devices") == true) {
-		ShowPlaybackDevices = true;
+	if (ImGui::Button("Stop All Sounds") == true) 
+	{
+		for (int i = 0; i < NUM_SOUNDS; i++)
+			UnloadSound(i);
 	}
-	ImGui::Text("%s", SelectedPlaybackDevice);
-	if (ImGui::Button("Stop All Sounds") == true) {
-		StopAllChannels();
-	}
+	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
-	if (ImGui::Button("View Channels") == true) {
-		ViewChannels = true;
-		ImGui::SetNextWindowSize(ImVec2(250, 250));
+
+	ImGui::NewLine();
+	if (NumActivePlaybackDevices > 0 || NumActiveCaptureDevices > 0)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(150, 0, 0, 255));
+		if (ImGui::Button("Close Devices"))
+		{
+			ClosePlaybackDevices();
+			CloseCaptureDevice();
+		}
+		ImGui::PopStyleColor();
 	}
-	if (ImGui::Checkbox("Autosave", &Autosave) == true) {
+	ImGui::NewLine();
+
+	ImGui::BeginTable("Playback Devices", 1);
+	ImGui::TableSetupColumn("Playback Devices");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < PlaybackDeviceCount; i++)
+	{
+		if (PlaybackDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pPlaybackDeviceInfos[i].name);
+		}
 	}
-	ImGui::End();
-	// ---------- END Main window ----------
+	ImGui::EndTable();
+	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
+	{
+		if (ImGui::Button("Select Playback Device"))
+			ShowPlaybackDeviceList = true;
+	}
+	else
+	{
+		ShowPlaybackDeviceList = false;
+	}
+
+	if (ShowPlaybackDeviceList)
+		SelectPlaybackDevice();
+
+
+
+	ImGui::BeginTable("Capture Device", 1);
+	ImGui::TableSetupColumn("Capture Device");
+	ImGui::TableHeadersRow();
+	for (int i = 0; i < CaptureDeviceCount; i++)
+	{
+		if (CaptureDeviceSelected[i] == true)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", pCaptureDeviceInfos[i].name);
+		}
+	}
+	if (NumActiveCaptureDevices > 0)
+	{
+		ImGui::NewLine();
+		ImGui::Text("This device is playing through");
+		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
+	}
+	ImGui::EndTable();
+
+	if (NumActiveCaptureDevices <= 0)
+	{
+		if (ImGui::Button("Select Recording Device"))
+			ShowCaptureDeviceList = true;
+
+		if (ShowCaptureDeviceList)
+			SelectCaptureDevice();
+	}
 
 	// ---------- Key Capture Window ----------
 	if (ShowKeyCaptureWindow == true) {
@@ -465,150 +456,103 @@ void DrawGUI() {
 		ImGui::Text("%s", "ENTER to set");
 		ImGui::Text("%s", "BACKSPCE to clear");
 		ImGui::NewLine();
-		if (UserPressedEscape) {
+		if (UserPressedEscape)
 			ShowKeyCaptureWindow = false;
-			UserPressedEscape = false;
-		}
 
-		if (ImGui::Button("Set") == true || UserPressedReturn) {
-			if (ImGui::IsItemFocused() && CapturedKeyText == NULL) {
-				if (UserPressedReturn) UserPressedReturn = false;
-				Hotkeys[CapturedKeyIndex].key = NULL;
+		if (ImGui::Button("Set") == true || ImGui::IsItemFocused() && UserPressedReturn) 
+		{
+			if (CapturedKeyCode == 0) 
+			{
+				Hotkeys[CapturedKeyIndex].keyCode = 0;
+				Hotkeys[CapturedKeyIndex].keyMod = 0;
 				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].mod = NULL;
 				Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
-				CaptureKeys = false;
-				ShowKeyCaptureWindow = false;
 			}
 
-			if (CapturedKeyText != NULL) {
-				for (int i = 0; i < NUM_SOUNDS; i++) {
+			else 
+			{
+				for (int i = 0; i < NUM_SOUNDS; i++)  
+				{
 					// Compare the captured key with all the stored hotkeys
-					if (strcmp(Hotkeys[i].keyText, CapturedKeyText) == 0) {
-						// If they are the same, check the captured hotkey
-						// If the captured key mod is NULL, then check the hotkey mod
-						if (CapturedKeyModText == NULL) {
-							// If the hotkey mod is also NULL, then the key is in use
-							if (Hotkeys[i].modText == NULL) {
-								CapturedKeyInUse = true;
-								ShowKeyCaptureWindow = false;
-							}
-
-						}
-						// Else check the hotkey mod. If they are the same, the key is in use
-						else if (strcmp(Hotkeys[i].modText, CapturedKeyModText) == 0) {
+					if (Hotkeys[i].keyCode == CapturedKeyCode) 
+					{
+						// Then compare the captured keyMod with the corresponding stored keyMod
+						if (Hotkeys[i].keyMod == CapturedKeyMod)
+						{
 							CapturedKeyInUse = true;
 							ShowKeyCaptureWindow = false;
 						}
 					}
 				}
 
-				if (CapturedKeyInUse == false) {
-					if (CapturedKeyCode != NULL) {
-						Hotkeys[CapturedKeyIndex].key = CapturedKeyCode;
-						Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-						strcpy(Hotkeys[CapturedKeyIndex].keyText, SDL_GetKeyName(CapturedKeyCode));
-						Hotkeys[CapturedKeyIndex].win32Key = ConvertSDLKeyToWin32Key(CapturedKeyCode);
-						if (CapturedKeyMod != NULL) {
-							Hotkeys[CapturedKeyIndex].mod = CapturedKeyMod;
-							Hotkeys[CapturedKeyIndex].sampleIndex = CapturedKeyIndex;
-							strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
-							Hotkeys[CapturedKeyIndex].win32KeyMod = Win32CapturedKeyMod;
-						}
-					}
-
-					CaptureKeys = false;
-					ShowKeyCaptureWindow = false;
+				if (CapturedKeyInUse == false) 
+				{
+					strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
+					Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
+					strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
+					Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
 				}
 			}
+
+			CaptureKeys = false;
+			ShowKeyCaptureWindow = false;
+			ClearCapturedKey();
 		}
+
 		ImGui::NewLine();
 		if (ImGui::Button("Clear") == true || UserPressedBackspace ||
 			(ImGui::IsItemFocused() && UserPressedReturn)) {
-			if (UserPressedBackspace) UserPressedBackspace = false;
-			if (UserPressedReturn) UserPressedReturn = false;
-			Hotkeys[CapturedKeyIndex].key = NULL;
 			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].win32Key = NULL;
-			Hotkeys[CapturedKeyIndex].win32KeyMod = NULL;
-			Hotkeys[CapturedKeyIndex].mod = NULL;
+			Hotkeys[CapturedKeyIndex].keyCode = 0;
+			Hotkeys[CapturedKeyIndex].keyMod = 0;
 			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].sampleIndex = NULL;
-			CapturedKeyCode = NULL;
-			CapturedKeyText = NULL;
-			CapturedKeyMod = NULL;
-			CapturedKeyModText[0] = '\0';
+			ClearCapturedKey();
 		}
 		ImGui::End();
-		if (UserPressedReturn) UserPressedReturn = false;
 	}
 
-	else {
-		CapturedKeyCode = NULL;
-		CapturedKeyText = NULL;
-		CapturedKeyMod = NULL;
-		CapturedKeyModText[0] = '\0';
-	}
+	CaptureKeys = ShowKeyCaptureWindow;
 	// ----------END Key Capture Window ----------
 
 	// ---------- Key In Use Window ----------
 	if (CapturedKeyInUse == true) {
 		ImGui::Begin("Invalid Key", &CapturedKeyInUse, ImGuiWindowFlags_AlwaysAutoResize);
 		ImGui::Text("Key already in use.\nClose this window and try again.");
-		if (ImGui::Button(" OK ") == true || UserPressedReturn || UserPressedEscape) {
-			if (UserPressedReturn) UserPressedReturn = false;
-			if (UserPressedEscape) UserPressedEscape = false;
+		if (ImGui::Button(" OK ") == true || UserPressedEscape ||
+			ImGui::IsItemFocused() && UserPressedReturn)
+		{
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
-		CapturedKeyText = NULL;
+		ClearCapturedKey();
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
-	// ---------- Channels Window ----------
-	if (ViewChannels == true) {
-		if (UserPressedEscape == true) {
-			ViewChannels = false;
-		}
-		ImGui::Begin("Channels Playing", &ViewChannels);
-		ImGui::BeginTable("Channels", 2, GUITableFlags);
-		ImGui::TableSetupColumn("Channel", ImGuiTableColumnFlags_WidthFixed);
-		ImGui::TableSetupColumn("File");
+	ImGui::End(); // End main window
+	ImGui::EndFrame();
+	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+	D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * clear_color.w * 255.0f), (int)(clear_color.y * clear_color.w * 255.0f), (int)(clear_color.z * clear_color.w * 255.0f), (int)(clear_color.w * 255.0f));
+	g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
+	if (g_pd3dDevice->BeginScene() >= 0)
+	{
+		ImGui::Render();
+		ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+		g_pd3dDevice->EndScene();
+	}
 
-		ImGui::TableHeadersRow();
-		for (size_t i = 0; i < NUM_CHANNELS; i++) {
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%d", i);
-			ImGui::TableNextColumn();
-			if (ChannelStates[i].isAvailable == false) {
-				ImGui::Text("Playing %s", ChannelStates[i].playingFileName);
-			}
-		}
-		ImGui::EndTable();
-		ImGui::End();
+	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
+		ResetDeviceD3D();
+}
 
-	} // ----------END Channels Window ----------
+void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
+	MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
 
-	// ---------- Playback Devices Window ----------
-	if (ShowPlaybackDevices == true) {
-		if (UserPressedEscape == true) {
-			ShowPlaybackDevices = false;
-		}
-		ImGui::Begin("Playback Devices", &ShowPlaybackDevices);
-		for (int i = 0; i < NumPlaybackDevices; i++) {
-			ImGui::PushID(i);
-			if (ImGui::Button(PlaybackDevices[i]) == true || UserPressedReturn) {
-				SelectedPlaybackDevice = PlaybackDevices[i];
-				Mix_OpenAudioDevice(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, NUM_CHANNELS, 22050,
-					PlaybackDevices[i], SDL_AUDIO_ALLOW_ANY_CHANGE);
-				ShowPlaybackDevices = false;
-			}
-			ImGui::PopID();
-		}
-		ImGui::End();
-	} // ----------END Playback Devices Window ----------
+	MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 }
 
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) {
@@ -632,80 +576,271 @@ char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) 
 	return aoDestination;
 }
 
-LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) {
-	if (CaptureKeys == false) {
-		if (nCode >= 0) {
-			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+int InitAudioSystem()
+{
+	ma_resource_manager_config resourceManagerConfig;
+	resourceManagerConfig = ma_resource_manager_config_init();
+	resourceManagerConfig.decodedFormat = ma_format_f32;
+	resourceManagerConfig.decodedChannels = 0;
+	resourceManagerConfig.decodedSampleRate = 48000;
 
-			PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+	ma_result result;
+	result = ma_resource_manager_init(&resourceManagerConfig, &ResourceManager);
+	if (result != MA_SUCCESS)
+		return -1;
 
-			switch (wParam) {
+	result = ma_context_init(NULL, 0, NULL, &Context);
+	if (result != MA_SUCCESS)
+		return -2;
+
+	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount,
+		&pCaptureDeviceInfos, &CaptureDeviceCount);
+	if (result != MA_SUCCESS)
+	{
+		ma_context_uninit(&Context);
+		return -3;
+	}
+
+	PlaybackDeviceSelected = (bool*)malloc(sizeof(bool) * PlaybackDeviceCount);
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		PlaybackDeviceSelected[i] = false;
+	CaptureDeviceSelected = (bool*)malloc(sizeof(bool) * CaptureDeviceCount);
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+
+	return 0;
+}
+
+void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+
+	deviceConfig = ma_device_config_init(ma_device_type_duplex);
+	deviceConfig.capture.pDeviceID = captureId;
+	deviceConfig.capture.format = duplexDevice->playback.format;
+	deviceConfig.capture.channels = duplexDevice->playback.channels;
+	deviceConfig.capture.shareMode = ma_share_mode_shared;
+	deviceConfig.playback.pDeviceID = &duplexDevice->playback.id;
+	deviceConfig.playback.format = duplexDevice->playback.format;
+	deviceConfig.playback.channels = duplexDevice->playback.channels;
+	deviceConfig.dataCallback = DuplexDeviceCallback;
+	deviceConfig.pUserData = &CaptureEngine.engine;
+
+	if (ma_device_init(&Context, &deviceConfig, &CaptureEngine.device) != MA_SUCCESS)
+	{
+		// Handle error
+	}
+
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &CaptureEngine.device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;
+
+	if (ma_engine_init(&engineConfig, &CaptureEngine.engine) != MA_SUCCESS)
+	{
+		ma_device_uninit(&CaptureEngine.device);
+		// Handle error
+	}
+
+	if (ma_engine_start(&CaptureEngine.engine) != MA_SUCCESS)
+	{
+		// Handle error failed to start engine
+	}
+
+	NumActiveCaptureDevices++;
+}
+
+void InitPlaybackDevice(ma_device_id* deviceId)
+{
+	ma_device_config deviceConfig;
+	ma_engine_config engineConfig;
+	deviceConfig = ma_device_config_init(ma_device_type_playback);
+	deviceConfig.playback.pDeviceID = deviceId;
+	deviceConfig.playback.format = ResourceManager.config.decodedFormat;
+	deviceConfig.playback.channels = 0;
+	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
+	deviceConfig.dataCallback = AudioCallback;
+	deviceConfig.pUserData = &PlaybackEngines[NumActivePlaybackDevices].engine;
+
+	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[NumActivePlaybackDevices].device);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+
+	engineConfig = ma_engine_config_init();
+	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
+	engineConfig.pResourceManager = &ResourceManager;
+	engineConfig.noAutoStart = MA_TRUE;
+
+	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+		ma_device_uninit(&PlaybackEngines[NumActivePlaybackDevices].device);
+	}
+
+	result = ma_engine_start(&PlaybackEngines[NumActivePlaybackDevices].engine);
+	if (result != MA_SUCCESS) {
+		// Handle error
+	}
+	NumActivePlaybackDevices++;
+}
+
+void InitSQLite() {
+	//---------- Create hotkeys table ----------
+	char* zErrMsg = 0;
+	int rc;
+	const char* sql_statement =
+		"CREATE TABLE IF NOT EXISTS HOTKEYS (KEY_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, FILE_PATH TEXT, FILE_NAME TEXT);";
+	sqlite3_stmt* prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database to create hotkeys table");
+		sqlite3_close(db);
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	sqlite3_close(db);
+
+	//---------- Create playback devices table ----------
+	zErrMsg = 0;
+	rc = 0;
+	sql_statement =
+		"CREATE TABLE IF NOT EXISTS DEVICES (DEVICE_INDEX INTEGER PRIMARY KEY, NAME TEXT);";
+	prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database to create playback devices table");
+		sqlite3_close(db);
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	sqlite3_close(db);
+}
+
+LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) 
+{
+	// If this code is less than zero, we must pass the message to the next hook
+	if (nCode >= 0)
+	{
+		// Else we are checking for hotkey matches
+		if (CaptureKeys == false)
+		{
+			switch (wParam) 
+			{
 			case WM_SYSKEYUP:
 			case WM_KEYUP:
 			{
-				if (p->vkCode == VK_PAUSE) {
-					StopAllChannels();
+				PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+
+				if (p->vkCode == VK_PAUSE) 
+				{
+					for (int i = 0; i < NUM_SOUNDS; i++)
+					{
+						UnloadSound(i);
+					}
 					break;
 				}
 
 				bool hotkeyFound = false;
 				for (size_t i = 0; i < NUM_SOUNDS; i++) {
-					if (Hotkeys[i].win32Key != NULL) {
-						if (Hotkeys[i].win32KeyMod != NULL) {
-							if (p->vkCode == Hotkeys[i].win32Key) {
+					if (Hotkeys[i].keyCode != NULL) {
+						if (Hotkeys[i].keyMod != NULL) {
+							if (p->vkCode == Hotkeys[i].keyCode) {
 								if (shiftDown) {
-									if (Hotkeys[i].win32KeyMod == VK_SHIFT)
+									if (Hotkeys[i].keyMod == VK_SHIFT)
 										hotkeyFound = true;
 								}
 								else if (ctrlDown) {
-									if (Hotkeys[i].win32KeyMod == VK_CONTROL)
+									if (Hotkeys[i].keyMod == VK_CONTROL)
 										hotkeyFound = true;
 								}
 								else if (altDown) {
-									if (Hotkeys[i].win32KeyMod == VK_MENU)
+									if (Hotkeys[i].keyMod == VK_MENU)
 										hotkeyFound = true;
 								}
 							}
 						}
 						// Else if there is no modifier
-						else if ((p->vkCode == Hotkeys[i].win32Key) &&
+						else if ((p->vkCode == Hotkeys[i].keyCode) &&
 							altDown == false && ctrlDown == false && shiftDown == false) {
 							hotkeyFound = true;
 						}
 
 						if (hotkeyFound == true) {
-							PlayAudio(Hotkeys[i].sampleIndex);
-							// Break out of the for loop
-							break;
+							for (int j = 0; j < NumActivePlaybackDevices; j++)
+							{
+								PlayAudio(j, i, Hotkeys[i].filePath);
+							}
+							break; // Break out of the "sound search" for loop
 						}
 					}
 				}
-			}
-			break;
+			} // End WM_KEYUP
 			default:
 				break;
-			}
+			} // End wParam switch (message)
 		}
 	}
 
 	return CallNextHookEx(0, nCode, wParam, lParam);
 }
 
-void LoadHotkeysFromDatabase() {
+void LoadDevicesFromDatabase() {
 	char* errorMessage = NULL;
 	int rc = sqlite3_open("hotkeys.db", &db);
 
-	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+	if (rc) 
+	{
+		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading devices");
 	}
 
-	else {
+	else 
+	{
 		sqlite3_stmt* stmt;
-		const char* sql = "SELECT * FROM HOTKEYS";
+		const char* sql = "SELECT * FROM DEVICES";
 		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-		if (rc != SQLITE_OK) {
+		if (rc != SQLITE_OK) 
+		{
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(errorMessage);
 			return;
@@ -713,10 +848,107 @@ void LoadHotkeysFromDatabase() {
 
 		int rowCounter = 0;
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (rowCounter < 50) {
-				Hotkeys[rowCounter].sampleIndex = sqlite3_column_int(stmt, 0);
-				Hotkeys[rowCounter].win32KeyMod = sqlite3_column_int(stmt, 1);
-				Hotkeys[rowCounter].win32Key = sqlite3_column_int(stmt, 2);
+			if (rowCounter < MAX_PLAYBACK_DEVICES) 
+			{
+				strcpy(PlaybackEngines[rowCounter].deviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
+			else if (rowCounter == 2)
+			{
+				strcpy(CaptureEngine.captureDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
+			else if (rowCounter == 3)
+			{
+				strcpy(CaptureEngine.duplexDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				rowCounter++;
+			}
+		}
+
+		if (rc != SQLITE_DONE) 
+		{
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(errorMessage);
+		}
+		sqlite3_finalize(stmt);
+
+	}
+	sqlite3_close(db);
+
+	
+	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+	{
+		for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
+		{
+			if (strcmp(pPlaybackDeviceInfos[i].name, PlaybackEngines[j].deviceName) == 0)
+			{
+				PlaybackDeviceSelected[i] = true;
+				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+				break;
+			}
+		}
+
+		if (NumActivePlaybackDevices == MAX_PLAYBACK_DEVICES)
+		{
+			break;
+		}
+	}
+
+	DuplexDeviceIndex = -1;
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
+		{
+			DuplexDeviceIndex = i;
+			break;
+		}
+	}
+
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+	{
+		if (strcmp(pCaptureDeviceInfos[i].name, CaptureEngine.captureDeviceName) == 0)
+		{
+			CaptureDeviceSelected[i] = true;
+			if (DuplexDeviceIndex >= 0)
+			{
+				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
+			}
+			else
+			{
+				PrintToLog("log-error.txt", "Failed to initialize capture device. Duplex device index invalid.");
+			}
+			break;
+		}
+	}
+}
+
+void LoadHotkeysFromDatabase() {
+	char* errorMessage = NULL;
+	int rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) 
+	{
+		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading hotkeys");
+	}
+
+	else 
+	{
+		sqlite3_stmt* stmt;
+		const char* sql = "SELECT * FROM HOTKEYS";
+		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+		if (rc != SQLITE_OK) 
+		{
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(errorMessage);
+			return;
+		}
+
+		int rowCounter = 0;
+		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+			if (rowCounter < MAX_SOUNDS) 
+			{
+				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
+				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
 				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
 				strcpy(Hotkeys[rowCounter].keyText, (const char*)sqlite3_column_text(stmt, 4));
 				strcpy(Hotkeys[rowCounter].filePath, (const char*)sqlite3_column_text(stmt, 5));
@@ -725,7 +957,8 @@ void LoadHotkeysFromDatabase() {
 			}
 		}
 
-		if (rc != SQLITE_DONE) {
+		if (rc != SQLITE_DONE) 
+		{
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(errorMessage);
 		}
@@ -735,31 +968,32 @@ void LoadHotkeysFromDatabase() {
 	sqlite3_close(db);
 }
 
-void PlayAudio(size_t index) {
-	bool sampleFound = true;
-	if (Samples[index] == NULL) {
-		Samples[index] = Mix_LoadWAV(Hotkeys[index].filePath);
-		if (!Samples[index]) {
-			sampleFound = false;
-			OutputDebugStringA("-- DEBUG --\n");
-			OutputDebugStringA(Mix_GetError());
-			OutputDebugStringA("\n-- END DEBUG --\n\n");
-			Hotkeys[index].filePath[0] = '\0';
-			strcpy(Hotkeys[index].fileName, "File not found!");
+void PlayAudio(int iEngine, int iSound, const char* filePath)
+{
+	if (SoundLoaded[iEngine][iSound] == false)
+	{
+		ma_uint32 flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE |
+			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC |
+			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
+
+		ma_result result = ma_sound_init_from_file(&PlaybackEngines[iEngine].engine,
+			filePath, flags, NULL, NULL, &PlaybackEngines[iEngine].sounds[iSound]);
+
+		if (result == MA_SUCCESS)
+		{
+			SoundLoaded[iEngine][iSound] = true;
+		}
+		else
+		{
+			// Handle error
 		}
 	}
 
-	if (sampleFound == true) {
-		ChannelLastUsed = Mix_PlayChannel(-1, Samples[index], 0);
-		if (ChannelLastUsed > NUM_CHANNELS || ChannelLastUsed < 0) {
-			OutputDebugStringA(Mix_GetError());
-		}
-		else {
-			if (ChannelLastUsed >= 0 && ChannelLastUsed < NUM_CHANNELS) {
-				strcpy(ChannelStates[ChannelLastUsed].playingFileName, Hotkeys[index].fileName);
-				ChannelStates[ChannelLastUsed].isAvailable = false;
-			}
-		}
+	ma_data_source_seek_to_pcm_frame(PlaybackEngines[iEngine].sounds[iSound].pDataSource, 0);
+
+	if (ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]) != MA_SUCCESS)
+	{
+		// Handle error failed to start sound
 	}
 }
 
@@ -775,73 +1009,27 @@ void PrintToLog(const char* fileName, const char* logText) {
 	}
 }
 
-void ProcessUserInput() {
-	// If we are in key capture mode, let SDL handle the inputs
-	if (CaptureKeys) {
-		if (Event.key.keysym.sym != SDLK_LCTRL &&
-			Event.key.keysym.sym != SDLK_RCTRL &&
-			Event.key.keysym.sym != SDLK_LSHIFT &&
-			Event.key.keysym.sym != SDLK_RSHIFT &&
-			Event.key.keysym.sym != SDLK_LALT &&
-			Event.key.keysym.sym != SDLK_RALT &&
-			Event.key.keysym.sym != SDLK_RETURN &&
-			Event.key.keysym.sym != SDLK_ESCAPE &&
-			Event.key.keysym.sym != SDLK_BACKSPACE &&
-			Event.key.keysym.sym != SDLK_UP &&
-			Event.key.keysym.sym != SDLK_RIGHT &&
-			Event.key.keysym.sym != SDLK_DOWN &&
-			Event.key.keysym.sym != SDLK_LEFT) {
-			CapturedKeyCode = Event.key.keysym.sym;
-			CapturedKeyText = SDL_GetKeyName(Event.key.keysym.sym);
-		}
-
-		if (Event.key.keysym.mod != NULL) {
-			if (Event.key.keysym.mod & KMOD_CTRL) {
-				CapturedKeyMod = KMOD_CTRL;
-				strcpy(CapturedKeyModText, "CTRL + ");
-				Win32CapturedKeyMod = VK_CONTROL;
-			}
-			else if (Event.key.keysym.mod & KMOD_SHIFT) {
-				CapturedKeyMod = KMOD_SHIFT;
-				strcpy(CapturedKeyModText, "SHIFT + ");
-				Win32CapturedKeyMod = VK_SHIFT;
-			}
-			else if (Event.key.keysym.mod & KMOD_ALT) {
-				CapturedKeyMod = KMOD_ALT;
-				strcpy(CapturedKeyModText, "ALT + ");
-				Win32CapturedKeyMod = VK_MENU;
-			}
-		}
-	}
-
-	switch (Event.key.keysym.sym) {
-	case SDLK_RETURN:
-		UserPressedReturn = true;
-		break;
-	case SDLK_ESCAPE:
-		UserPressedEscape = true;
-		break;
-	case SDLK_BACKSPACE:
-		UserPressedBackspace = true;
-	default:
-		break;
-	}
-}
-
-void ResetChannel(int channel) {
-	ChannelStates[channel].isAvailable = true;
-	ChannelStates[channel].playingFileName[0] = '\0';
+void ResetDeviceD3D()
+{
+	ImGui_ImplDX9_InvalidateDeviceObjects();
+	HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
+	if (hr == D3DERR_INVALIDCALL)
+		IM_ASSERT(0);
+	ImGui_ImplDX9_CreateDeviceObjects();
 }
 
 void ResetNavKeys() {
-	UserPressedEscape = false;
-	UserPressedReturn = false;
+	if (UserPressedReturn)
+		UserPressedReturn = false;
+	if (UserPressedEscape)
+		UserPressedEscape = false;
 }
 
-void SaveHotkeysToDatabase() {
+void SaveHotkeysToDatabase() 
+{
 	char* zErrMsg = 0;
 	int rc;
-	const char* sql_statement = "REPLACE INTO HOTKEYS(SAMPLE_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
+	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
 	rc = sqlite3_open("hotkeys.db", &db);
 
@@ -856,18 +1044,18 @@ void SaveHotkeysToDatabase() {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-
-		rc = sqlite3_bind_int(prepared_statement, 1, Hotkeys[i].sampleIndex);
+		
+		rc = sqlite3_bind_int(prepared_statement, 1, i);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].win32KeyMod);
+		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].win32Key);
+		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].keyCode);
 		if (rc != SQLITE_OK) {
 			PrintToLog("log-error.txt", sqlite3_errmsg(db));
 			sqlite3_free(zErrMsg);
@@ -909,60 +1097,159 @@ void SaveHotkeysToDatabase() {
 	sqlite3_close(db);
 }
 
-void StopAllChannels() {
-	for (int i = 0; i < NUM_CHANNELS; i++) {
-		Mix_HaltChannel(i);
-		ChannelStates[i].isAvailable = true;
-		ChannelStates[i].playingFileName[0] = '\0';
+void SaveDevicesToDatabase()
+{
+	char* zErrMsg = 0;
+	int rc;
+	const char* sql_statement = "REPLACE INTO DEVICES(DEVICE_INDEX, NAME) VALUES (?, ?)";
+	sqlite3_stmt* prepared_statement = NULL;
+	rc = sqlite3_open("hotkeys.db", &db);
+
+	if (rc) {
+		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		sqlite3_close(db);
 	}
-	for (int i = 0; i < NUM_SOUNDS; i++) {
-		if (Samples[i] != NULL) {
-			Mix_FreeChunk(Samples[i]);
-			Samples[i] = NULL;
+
+	for (int i = 0; i < 4; i++)
+	{
+		rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		rc = sqlite3_bind_int(prepared_statement, 1, i);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		if (i < MAX_PLAYBACK_DEVICES)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, PlaybackEngines[i].deviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
+		}
+
+		else if (i == 2)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.captureDeviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
+		}
+
+		else if (i == 3)
+		{
+			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.duplexDeviceName, -1, NULL);
+			if (rc != SQLITE_OK) {
+				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				sqlite3_free(zErrMsg);
+			}
+		}
+
+		rc = sqlite3_step(prepared_statement);
+		if (rc != SQLITE_DONE) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
+		}
+
+		rc = sqlite3_finalize(prepared_statement);
+		if (rc != SQLITE_OK) {
+			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			sqlite3_free(zErrMsg);
 		}
 	}
+
+	sqlite3_close(db);
 }
 
-void Update() {
-	while (SDL_PollEvent(&Event)) {
-		ImGui_ImplSDL2_ProcessEvent(&Event);
-		switch (Event.type) {
-		case SDL_QUIT: WindowShouldClose = true;
-			break;
-		case SDL_KEYUP: ProcessUserInput();
-			break;
-		default:
-			break;
+void SelectCaptureDevice()
+{
+	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
+	if (ShowDuplexDevices == false)
+	{
+		ImGui::Text("First, select a recording device.\nThis is usually your microphone.");
+		ImGui::NewLine();
+
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		{
+			ImGui::PushID(i);
+			if (ImGui::Button(pCaptureDeviceInfos[i].name))
+			{
+				CaptureDeviceIndex = i;
+				CaptureDeviceSelected[i] = true;
+				ShowDuplexDevices = true;
+			}
+			ImGui::PopID();
 		}
 	}
 
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplSDL2_NewFrame();
-	ImGui::NewFrame();
-	GUIviewport = ImGui::GetMainViewport();
-	ImGui::SetNextWindowPos(GUIviewport->WorkPos);
-	ImGui::SetNextWindowSize(GUIviewport->WorkSize);
-	DrawGUI();
-	ResetNavKeys();
-	ImGui::Render();
-	glViewport(0, 0, GUIviewport->Size.x, GUIviewport->Size.y);
-	glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-	glClear(GL_COLOR_BUFFER_BIT);
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-	SDL_GL_SwapWindow(Window);
+	if (ShowDuplexDevices == true)
+	{
+		ImGui::Text("Now, select where this recording device should play through.\nThis is usually a virtual cable input.");
+		ImGui::NewLine();
+
+		if (NumActivePlaybackDevices > 0)
+		{
+			for (int i = 0; i < NumActivePlaybackDevices; i++)
+			{
+				ImGui::PushID(i);
+				if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
+				{
+					InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
+					strcpy(CaptureEngine.captureDeviceName, pCaptureDeviceInfos[CaptureDeviceIndex].name);
+					strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
+					DuplexDeviceIndex = i;
+					ShowDuplexDevices = false;
+					ShowCaptureDeviceList = false;
+				}
+				ImGui::PopID();
+			}
+		}
+
+		else
+		{
+			ImGui::Text("You need to select a playback device first.");
+		}
+
+	}
+	ImGui::End();
 }
 
-void Close() {
-	if (Autosave == true) {
-		SaveHotkeysToDatabase();
+void SelectPlaybackDevice()
+{
+	ImGui::Begin("Select Playback Device (max 2)", &ShowPlaybackDeviceList);
+	ImGui::Text("Select where you want to hear sound (up to 2 devices).\nThis is usually your speakers and a virtual cable input.");
+	ImGui::NewLine();
+	for (int i = 0; i < PlaybackDeviceCount; i += 1)
+	{
+		if (PlaybackDeviceSelected[i] == false)
+		{
+			ImGui::PushID(i);
+			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
+			{
+				PlaybackDeviceSelected[i] = true;
+				strcpy(PlaybackEngines[NumActivePlaybackDevices].deviceName, pPlaybackDeviceInfos[i].name);
+				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+			}
+			ImGui::PopID();
+		}
 	}
-	Mix_CloseAudio();
-	Mix_Quit();
-	free(PlaybackDevices);
-	ImGui_ImplOpenGL3_Shutdown();
-	ImGui_ImplSDL2_Shutdown();
-	ImGui::DestroyContext();
-	SDL_GL_DeleteContext(GLContext);
-	SDL_DestroyWindow(Window);
-	SDL_Quit();
+	ImGui::End();
+}
+
+void UnloadSound(int iSound)
+{
+	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	{
+		if (SoundLoaded[i][iSound] == true)
+		{
+			ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
+			SoundLoaded[i][iSound] = false;
+		}
+	}
 }
