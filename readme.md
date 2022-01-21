@@ -1,10 +1,10 @@
+![AcousticSoundboard_2022-01-20_20-28-22](https://user-images.githubusercontent.com/64415017/150454963-c4ca0235-7823-472a-9ca1-d76c537a8851.png)
 Acoustic Soundboard is a program for Windows built with the DearImGui and miniaudio libraries. There is no installation required, simply unzip the contents of this folder wherever you like. This soundboard strives to be an easy to use, lightweight program that can play audio files to others while allowing the user to hear what ia played and still use their microphone normally. To achieve this, you will first need to install a virtual audio cable such as this one:
 https://vb-audio.com/Cable/
 
 1. Once that's done, launch AcousticSoundboard and click "Select Playback Device" and select: 
   a. the device where YOU want to hear the sound
-  ![AcousticSoundboard_2022-01-20_20-28-22](https://user-images.githubusercontent.com/64415017/150454963-c4ca0235-7823-472a-9ca1-d76c537a8851.png)
-b. the virtual device (eg virtual audio cable input)
+  b. the virtual device (eg virtual audio cable input)
 2. Next, click "Select Recording Device" and select your microphone. Then select device b from step 1. This is the device where your microphone's audio will be sent.
 3. Select a sound file. Most common file formats are supported.
 4. Set a hotkey that will trigger the sound. You can use SHIFT, CONTROL, or ALT key combos, and you can set up to 50 	hotkeys and sounds.
