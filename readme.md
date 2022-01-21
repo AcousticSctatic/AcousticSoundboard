@@ -2,8 +2,9 @@ Acoustic Soundboard is a program for Windows built with the DearImGui and miniau
 https://vb-audio.com/Cable/
 
 1. Once that's done, launch AcousticSoundboard and click "Select Playback Device" and select: 
-  a. the device where YOU want to hear the sound 
-  b. the virtual device (eg virtual audio cable input)
+  a. the device where YOU want to hear the sound
+  ![AcousticSoundboard_2022-01-20_20-28-22](https://user-images.githubusercontent.com/64415017/150454963-c4ca0235-7823-472a-9ca1-d76c537a8851.png)
+b. the virtual device (eg virtual audio cable input)
 2. Next, click "Select Recording Device" and select your microphone. Then select device b from step 1. This is the device where your microphone's audio will be sent.
 3. Select a sound file. Most common file formats are supported.
 4. Set a hotkey that will trigger the sound. You can use SHIFT, CONTROL, or ALT key combos, and you can set up to 50 	hotkeys and sounds.
