@@ -37,9 +37,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	LoadHotkeysFromDatabase();
 	LoadDevicesFromDatabase();
 
+	unsigned int LoopCounter = 0;
 	while (WindowShouldClose == false) 
-	{ // Main loop
-		Update();
+	{
+		MSG msg;
+		while (GetMessageW(&msg, NULL, 0U, 0U))
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+			DrawGUI();
+			ResetNavKeys();
+		}
 	} 
 
 	SaveHotkeysToDatabase();
@@ -1244,16 +1252,4 @@ void UnloadSound(int iSound)
 			SoundLoaded[i][iSound] = false;
 		}
 	}
-}
-
-void Update() {
-	MSG msg;
-	while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
-	{
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-	}
-
-	DrawGUI();
-	ResetNavKeys();
 }

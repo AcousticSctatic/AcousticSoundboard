@@ -131,4 +131,3 @@ void SaveHotkeysToDatabase();
 void SelectCaptureDevice();
 void SelectPlaybackDevice();
 void UnloadSound(int iSound);
-void Update();
