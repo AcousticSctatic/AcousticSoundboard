@@ -403,16 +403,13 @@ void DrawGUI()
 	{
 		if (ImGui::Button("Select Playback Device"))
 			ShowPlaybackDeviceList = true;
+
+		if (UserPressedEscape == true)
+			ShowPlaybackDeviceList = false;
+
+		if (ShowPlaybackDeviceList)
+			SelectPlaybackDevice();
 	}
-	else
-	{
-		ShowPlaybackDeviceList = false;
-	}
-
-	if (ShowPlaybackDeviceList)
-		SelectPlaybackDevice();
-
-
 
 	ImGui::BeginTable("Capture Device", 1);
 	ImGui::TableSetupColumn("Capture Device");
@@ -438,6 +435,9 @@ void DrawGUI()
 	{
 		if (ImGui::Button("Select Recording Device"))
 			ShowCaptureDeviceList = true;
+
+		if (UserPressedEscape == true)
+			ShowCaptureDeviceList = false;
 
 		if (ShowCaptureDeviceList)
 			SelectCaptureDevice();
@@ -1019,10 +1019,8 @@ void ResetDeviceD3D()
 }
 
 void ResetNavKeys() {
-	if (UserPressedReturn)
-		UserPressedReturn = false;
-	if (UserPressedEscape)
-		UserPressedEscape = false;
+	UserPressedReturn = false;
+	UserPressedEscape = false;
 }
 
 void SaveHotkeysToDatabase() 
