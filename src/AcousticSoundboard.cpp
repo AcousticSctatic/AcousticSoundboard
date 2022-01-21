@@ -874,52 +874,57 @@ void LoadDevicesFromDatabase() {
 
 	}
 	sqlite3_close(db);
-
 	
-	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+	DuplexDeviceIndex = -1;
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
-		for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
+		if (PlaybackEngines[i].deviceName[0] != '\0')
 		{
-			if (strcmp(pPlaybackDeviceInfos[i].name, PlaybackEngines[j].deviceName) == 0)
+			for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 			{
-				PlaybackDeviceSelected[i] = true;
-				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id);
+				if (strcmp(pPlaybackDeviceInfos[j].name, PlaybackEngines[i].deviceName) == 0)
+				{
+					PlaybackDeviceSelected[j] = true;
+					InitPlaybackDevice(&pPlaybackDeviceInfos[j].id);
+					break;
+				}
+
+				else if (j == PlaybackDeviceCount - 1)
+				{
+					PlaybackEngines[i].deviceName[0] = '\0';
+					PrintToLog("log-error.txt", "Failed to initialize last known playback device. Playback device not found.");
+				}
+			}
+
+			if (CaptureEngine.duplexDeviceName[0] != '\0');
+			{
+				if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
+				{
+					DuplexDeviceIndex = i;
+				}
+			}
+		}
+	}
+
+	if (DuplexDeviceIndex >= 0)
+	{
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		{
+			if (strcmp(pCaptureDeviceInfos[i].name, CaptureEngine.captureDeviceName) == 0)
+			{
+				CaptureDeviceSelected[i] = true;
+				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
 				break;
 			}
 		}
-
-		if (NumActivePlaybackDevices == MAX_PLAYBACK_DEVICES)
-		{
-			break;
-		}
+		PrintToLog("log-error.txt", "Failed to initialize last known capture device. Capture device not found.");
 	}
 
-	DuplexDeviceIndex = -1;
-	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	else
 	{
-		if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
-		{
-			DuplexDeviceIndex = i;
-			break;
-		}
+		PrintToLog("log-error.txt", "Failed to initialize last known capture device. Duplex device not found.");
 	}
 
-	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-	{
-		if (strcmp(pCaptureDeviceInfos[i].name, CaptureEngine.captureDeviceName) == 0)
-		{
-			CaptureDeviceSelected[i] = true;
-			if (DuplexDeviceIndex >= 0)
-			{
-				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
-			}
-			else
-			{
-				PrintToLog("log-error.txt", "Failed to initialize capture device. Duplex device index invalid.");
-			}
-			break;
-		}
-	}
 }
 
 void LoadHotkeysFromDatabase() {
