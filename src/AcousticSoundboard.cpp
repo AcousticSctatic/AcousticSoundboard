@@ -51,6 +51,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	} 
 
 	SaveDevicesToDatabase();
+	/*
 	PrintToLog("log-save.txt", "----------------------------------");
 	char buffer[100];
 	snprintf(buffer, 100, "Active playback devices: %d", NumActivePlaybackDevices);
@@ -66,7 +67,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	PrintToLog("log-save.txt", CaptureEngine.duplexDeviceName);
 	PrintToLog("log-save.txt", "----------------------------------");
 	PrintToLog("log-save.txt", "\n");
-
+	*/
 	CloseAudioSystem();
 	DestroyWindow(hwnd);
 	SaveHotkeysToDatabase();
@@ -236,20 +237,24 @@ void CloseCaptureDevice()
 
 void ClosePlaybackDevices()
 {
-	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
-		ma_engine_uninit(&PlaybackEngines[i].engine);
-		ma_device_uninit(&PlaybackEngines[i].device);
-
-		for (int j = 0; j < NUM_SOUNDS; j++)
+		if (PlaybackEngines[i].active == true)
 		{
-			if (SoundLoaded[i][j] == true)
+			ma_engine_uninit(&PlaybackEngines[i].engine);
+			ma_device_uninit(&PlaybackEngines[i].device);
+
+			for (int j = 0; j < NUM_SOUNDS; j++)
 			{
-				ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
-				SoundLoaded[i][j] = false;
+				if (SoundLoaded[i][j] == true)
+				{
+					ma_sound_uninit(&PlaybackEngines[i].sounds[j]);
+					SoundLoaded[i][j] = false;
+				}
 			}
+			PlaybackEngines[i].active = false;
+			PlaybackEngines[i].deviceName[0] = '\0';
 		}
-		PlaybackEngines[i].deviceName[0] = '\0';
 	}
 
 	NumActivePlaybackDevices = 0;
@@ -621,7 +626,7 @@ int InitAudioSystem()
 	return 0;
 }
 
-void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
+void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_device* duplexDevice, char* duplexDeviceName)
 {
 	ma_device_config deviceConfig;
 	ma_engine_config engineConfig;
@@ -658,12 +663,12 @@ void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
 		// Handle error failed to start engine
 	}
 
-	strcpy(CaptureEngine.captureDeviceName, LastCaptureDeviceName);
-	strcpy(CaptureEngine.duplexDeviceName, LastDuplexDeviceName);
+	strcpy(CaptureEngine.captureDeviceName, captureDeviceName);
+	strcpy(CaptureEngine.duplexDeviceName, duplexDeviceName);
 	NumActiveCaptureDevices++;
 }
 
-void InitPlaybackDevice(ma_device_id* deviceId, int deviceIndex)
+void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName)
 {
 	ma_device_config deviceConfig;
 	ma_engine_config engineConfig;
@@ -673,31 +678,31 @@ void InitPlaybackDevice(ma_device_id* deviceId, int deviceIndex)
 	deviceConfig.playback.channels = 0;
 	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
 	deviceConfig.dataCallback = AudioCallback;
-	deviceConfig.pUserData = &PlaybackEngines[deviceIndex].engine;
+	deviceConfig.pUserData = &PlaybackEngines[iEngine].engine;
 
-	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[deviceIndex].device);
+	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[iEngine].device);
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
 
 	engineConfig = ma_engine_config_init();
-	engineConfig.pDevice = &PlaybackEngines[deviceIndex].device;
+	engineConfig.pDevice = &PlaybackEngines[iEngine].device;
 	engineConfig.pResourceManager = &ResourceManager;
 	engineConfig.noAutoStart = MA_TRUE;
 
-	result = ma_engine_init(&engineConfig, &PlaybackEngines[deviceIndex].engine);
+	result = ma_engine_init(&engineConfig, &PlaybackEngines[iEngine].engine);
 	if (result != MA_SUCCESS) {
 		// Handle error
-		ma_device_uninit(&PlaybackEngines[deviceIndex].device);
+		ma_device_uninit(&PlaybackEngines[iEngine].device);
 	}
 
-	result = ma_engine_start(&PlaybackEngines[deviceIndex].engine);
+	result = ma_engine_start(&PlaybackEngines[iEngine].engine);
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
 
-	strcpy(PlaybackEngines[deviceIndex].deviceName, LastPlaybackDeviceNames[deviceIndex]);
-	PlaybackEngines[deviceIndex] = true;
+	strcpy(PlaybackEngines[iEngine].deviceName, deviceName);
+	PlaybackEngines[iEngine].active = true;
 	NumActivePlaybackDevices++;
 }
 
@@ -894,16 +899,16 @@ void LoadDevicesFromDatabase() {
 	sqlite3_close(db);
 	
 	DuplexDeviceIndex = -1;
-	PrintToLog("log-save.txt", "Try loading playback device");
+	//PrintToLog("log-save.txt", "Try loading playback device");
 	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
-		PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
+		//PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
 		for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 		{
 			if (strcmp(pPlaybackDeviceInfos[j].name, LastPlaybackDeviceNames[i]) == 0)
 			{
 				PlaybackDeviceSelected[j] = true;
-				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, i);
+				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, i, pPlaybackDeviceInfos[j].name);
 				break;
 			}
 		}
@@ -921,7 +926,8 @@ void LoadDevicesFromDatabase() {
 			if (strcmp(pCaptureDeviceInfos[i].name, LastCaptureDeviceName) == 0)
 			{
 				CaptureDeviceSelected[i] = true;
-				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
+				InitCaptureDevice(&pCaptureDeviceInfos[i].id, pCaptureDeviceInfos[i].name,
+					&PlaybackEngines[DuplexDeviceIndex].device, PlaybackEngines[DuplexDeviceIndex].deviceName);
 				break;
 			}
 		}
@@ -1211,10 +1217,8 @@ void SelectCaptureDevice()
 					ImGui::PushID(i);
 					if (ImGui::Button(&PlaybackEngines[i].deviceName[0]))
 					{
-						InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
-						strcpy(CaptureEngine.captureDeviceName, pCaptureDeviceInfos[CaptureDeviceIndex].name);
-						strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
-						DuplexDeviceIndex = i;
+						InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, pCaptureDeviceInfos[CaptureDeviceIndex].name,
+							&PlaybackEngines[i].device, PlaybackEngines[i].deviceName);
 						ShowDuplexDevices = false;
 						ShowCaptureDeviceList = false;
 					}
@@ -1239,7 +1243,14 @@ void SelectPlaybackDevice()
 			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
 			{
 				PlaybackDeviceSelected[i] = true;
-				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id, pPlaybackDeviceInfos[i].name);
+				for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
+				{
+					if (PlaybackEngines[j].active == false)
+					{
+						InitPlaybackDevice(&pPlaybackDeviceInfos[i].id, j, pPlaybackDeviceInfos[i].name);
+						break;
+					}
+				}
 			}
 			ImGui::PopID();
 		}
