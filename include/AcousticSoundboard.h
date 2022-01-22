@@ -33,6 +33,7 @@ typedef struct Hotkey {
 }Hotkey;
 
 typedef struct playback_engine {
+	bool active;
 	ma_engine engine;
 	ma_device device;
 	ma_sound sounds[MAX_SOUNDS];
@@ -65,7 +66,10 @@ size_t CurrentPage = 1;
 ma_context Context;
 bool SoundLoaded[MAX_PLAYBACK_DEVICES][NUM_SOUNDS];
 Playback_Engine PlaybackEngines[MAX_PLAYBACK_DEVICES];
+char LastPlaybackDeviceNames[MAX_PLAYBACK_DEVICES][256];
 Capture_Engine CaptureEngine;
+char LastCaptureDeviceName[256];
+char LastDuplexDeviceName[256];
 ma_device_info* pPlaybackDeviceInfos;
 ma_uint32 PlaybackDeviceCount;
 bool* PlaybackDeviceSelected;
@@ -117,7 +121,7 @@ void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource);
 int InitAudioSystem();
 void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice);
-void InitPlaybackDevice(ma_device_id* deviceId, char* name);
+void InitPlaybackDevice(ma_device_id* deviceId, int deviceIndex);
 void InitSQLite();
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
 void LoadDevicesFromDatabase();

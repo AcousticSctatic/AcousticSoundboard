@@ -355,11 +355,7 @@ void DrawGUI()
 		{
 			Hotkeys[i].fileName[0] = '\0';
 			Hotkeys[i].filePath[0] = '\0';
-
-			for (int j = 0; j < NumActivePlaybackDevices; j++)
-			{
-				UnloadSound(i);
-			}
+			UnloadSound(i);
 		}
 		ImGui::PopID();
 	}
@@ -400,28 +396,12 @@ void DrawGUI()
 		}
 		ImGui::PopStyleColor();
 	}
-	ImGui::NewLine();
-
-	ImGui::Text("Last known playback");
-	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
-	{
-		ImGui::Text("%s", PlaybackEngines[i].deviceName);
-	}
 
 	ImGui::BeginTable("Playback Devices", 1);
 	ImGui::TableSetupColumn("Playback Devices");
 	ImGui::TableHeadersRow();
-
-	for (int i = 0; i < PlaybackDeviceCount; i++)
-	{
-		if (PlaybackDeviceSelected[i] == true)
-		{
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%s", pPlaybackDeviceInfos[i].name);
-		}
-	}
-	ImGui::EndTable();
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
 	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
 	{
 		if (ImGui::Button("Select Playback Device"))
@@ -433,27 +413,24 @@ void DrawGUI()
 		if (ShowPlaybackDeviceList)
 			SelectPlaybackDevice();
 	}
+	else
+	{
+		ShowPlaybackDeviceList = false;
+	}
+
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
+	{
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+		ImGui::Text("%s", PlaybackEngines[i].deviceName);
+	}
+	ImGui::EndTable();
 
 	ImGui::BeginTable("Capture Device", 1);
 	ImGui::TableSetupColumn("Capture Device");
 	ImGui::TableHeadersRow();
-	for (int i = 0; i < CaptureDeviceCount; i++)
-	{
-		if (CaptureDeviceSelected[i] == true)
-		{
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::Text("%s", pCaptureDeviceInfos[i].name);
-		}
-	}
-	if (NumActiveCaptureDevices > 0)
-	{
-		ImGui::NewLine();
-		ImGui::Text("This device is playing through");
-		ImGui::Text("%s", &PlaybackEngines[DuplexDeviceIndex].device.playback.name[0]);
-	}
-	ImGui::EndTable();
-
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
 	if (NumActiveCaptureDevices <= 0)
 	{
 		if (ImGui::Button("Select Recording Device"))
@@ -465,6 +442,16 @@ void DrawGUI()
 		if (ShowCaptureDeviceList)
 			SelectCaptureDevice();
 	}
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
+	ImGui::Text("%s", CaptureEngine.captureDeviceName);
+	if (NumActiveCaptureDevices > 0)
+	{
+		ImGui::NewLine();
+		ImGui::Text("This device is playing through");
+		ImGui::Text("%s", CaptureEngine.duplexDeviceName);
+	}
+	ImGui::EndTable();
 
 	// ---------- Key Capture Window ----------
 	if (ShowKeyCaptureWindow == true) {
@@ -671,10 +658,12 @@ void InitCaptureDevice(ma_device_id* captureId, ma_device* duplexDevice)
 		// Handle error failed to start engine
 	}
 
+	strcpy(CaptureEngine.captureDeviceName, LastCaptureDeviceName);
+	strcpy(CaptureEngine.duplexDeviceName, LastDuplexDeviceName);
 	NumActiveCaptureDevices++;
 }
 
-void InitPlaybackDevice(ma_device_id* deviceId, char* name)
+void InitPlaybackDevice(ma_device_id* deviceId, int deviceIndex)
 {
 	ma_device_config deviceConfig;
 	ma_engine_config engineConfig;
@@ -684,29 +673,31 @@ void InitPlaybackDevice(ma_device_id* deviceId, char* name)
 	deviceConfig.playback.channels = 0;
 	deviceConfig.sampleRate = ResourceManager.config.decodedSampleRate;
 	deviceConfig.dataCallback = AudioCallback;
-	deviceConfig.pUserData = &PlaybackEngines[NumActivePlaybackDevices].engine;
+	deviceConfig.pUserData = &PlaybackEngines[deviceIndex].engine;
 
-	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[NumActivePlaybackDevices].device);
+	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[deviceIndex].device);
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
 
 	engineConfig = ma_engine_config_init();
-	engineConfig.pDevice = &PlaybackEngines[NumActivePlaybackDevices].device;
+	engineConfig.pDevice = &PlaybackEngines[deviceIndex].device;
 	engineConfig.pResourceManager = &ResourceManager;
 	engineConfig.noAutoStart = MA_TRUE;
 
-	result = ma_engine_init(&engineConfig, &PlaybackEngines[NumActivePlaybackDevices].engine);
+	result = ma_engine_init(&engineConfig, &PlaybackEngines[deviceIndex].engine);
 	if (result != MA_SUCCESS) {
 		// Handle error
-		ma_device_uninit(&PlaybackEngines[NumActivePlaybackDevices].device);
+		ma_device_uninit(&PlaybackEngines[deviceIndex].device);
 	}
 
-	result = ma_engine_start(&PlaybackEngines[NumActivePlaybackDevices].engine);
+	result = ma_engine_start(&PlaybackEngines[deviceIndex].engine);
 	if (result != MA_SUCCESS) {
 		// Handle error
 	}
-	strcpy(PlaybackEngines[NumActivePlaybackDevices].deviceName, name);
+
+	strcpy(PlaybackEngines[deviceIndex].deviceName, LastPlaybackDeviceNames[deviceIndex]);
+	PlaybackEngines[deviceIndex] = true;
 	NumActivePlaybackDevices++;
 }
 
@@ -831,9 +822,12 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 						}
 
 						if (hotkeyFound == true) {
-							for (int j = 0; j < NumActivePlaybackDevices; j++)
+							for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
 							{
-								PlayAudio(j, i, Hotkeys[i].filePath);
+								if (PlaybackEngines[j].active == true)
+								{
+									PlayAudio(j, i, Hotkeys[i].filePath);
+								}
 							}
 							break; // Break out of the "sound search" for loop
 						}
@@ -874,17 +868,17 @@ void LoadDevicesFromDatabase() {
 		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 			if (rowCounter < MAX_PLAYBACK_DEVICES) 
 			{
-				strcpy(PlaybackEngines[rowCounter].deviceName, (const char*)sqlite3_column_text(stmt, 1));
+				strcpy(LastPlaybackDeviceNames[rowCounter], (const char*)sqlite3_column_text(stmt, 1));
 				rowCounter++;
 			}
 			else if (rowCounter == 2)
 			{
-				strcpy(CaptureEngine.captureDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				strcpy(LastCaptureDeviceName, (const char*)sqlite3_column_text(stmt, 1));
 				rowCounter++;
 			}
 			else if (rowCounter == 3)
 			{
-				strcpy(CaptureEngine.duplexDeviceName, (const char*)sqlite3_column_text(stmt, 1));
+				strcpy(LastDuplexDeviceName, (const char*)sqlite3_column_text(stmt, 1));
 				rowCounter++;
 			}
 		}
@@ -906,17 +900,17 @@ void LoadDevicesFromDatabase() {
 		PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
 		for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 		{
-			if (strcmp(pPlaybackDeviceInfos[j].name, PlaybackEngines[i].deviceName) == 0)
+			if (strcmp(pPlaybackDeviceInfos[j].name, LastPlaybackDeviceNames[i]) == 0)
 			{
 				PlaybackDeviceSelected[j] = true;
-				if (strcmp(PlaybackEngines[i].deviceName, CaptureEngine.duplexDeviceName) == 0)
-				{
-					DuplexDeviceIndex = NumActivePlaybackDevices;
-				}
-
-				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, pPlaybackDeviceInfos[j].name);
+				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, i);
 				break;
 			}
+		}
+
+		if (strcmp(LastPlaybackDeviceNames[i], LastDuplexDeviceName) == 0)
+		{
+			DuplexDeviceIndex = i;
 		}
 	}
 
@@ -924,7 +918,7 @@ void LoadDevicesFromDatabase() {
 	{
 		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
 		{
-			if (strcmp(pCaptureDeviceInfos[i].name, CaptureEngine.captureDeviceName) == 0)
+			if (strcmp(pCaptureDeviceInfos[i].name, LastCaptureDeviceName) == 0)
 			{
 				CaptureDeviceSelected[i] = true;
 				InitCaptureDevice(&pCaptureDeviceInfos[i].id, &PlaybackEngines[DuplexDeviceIndex].device);
@@ -1203,29 +1197,31 @@ void SelectCaptureDevice()
 		ImGui::Text("Now, select where this recording device should play through.\nThis is usually a virtual cable input.");
 		ImGui::NewLine();
 
-		if (NumActivePlaybackDevices > 0)
-		{
-			for (int i = 0; i < NumActivePlaybackDevices; i++)
-			{
-				ImGui::PushID(i);
-				if (ImGui::Button(&PlaybackEngines[i].device.playback.name[0]))
-				{
-					InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
-					strcpy(CaptureEngine.captureDeviceName, pCaptureDeviceInfos[CaptureDeviceIndex].name);
-					strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
-					DuplexDeviceIndex = i;
-					ShowDuplexDevices = false;
-					ShowCaptureDeviceList = false;
-				}
-				ImGui::PopID();
-			}
-		}
-
-		else
+		if (NumActivePlaybackDevices == 0)
 		{
 			ImGui::Text("You need to select a playback device first.");
 		}
 
+		else
+		{
+			for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
+			{
+				if (PlaybackEngines[i].active == true)
+				{
+					ImGui::PushID(i);
+					if (ImGui::Button(&PlaybackEngines[i].deviceName[0]))
+					{
+						InitCaptureDevice(&pCaptureDeviceInfos[CaptureDeviceIndex].id, &PlaybackEngines[i].device);
+						strcpy(CaptureEngine.captureDeviceName, pCaptureDeviceInfos[CaptureDeviceIndex].name);
+						strcpy(CaptureEngine.duplexDeviceName, PlaybackEngines[i].deviceName);
+						DuplexDeviceIndex = i;
+						ShowDuplexDevices = false;
+						ShowCaptureDeviceList = false;
+					}
+					ImGui::PopID();
+				}
+			}
+		}
 	}
 	ImGui::End();
 }
@@ -1243,7 +1239,6 @@ void SelectPlaybackDevice()
 			if (ImGui::Button(pPlaybackDeviceInfos[i].name))
 			{
 				PlaybackDeviceSelected[i] = true;
-
 				InitPlaybackDevice(&pPlaybackDeviceInfos[i].id, pPlaybackDeviceInfos[i].name);
 			}
 			ImGui::PopID();
@@ -1254,7 +1249,7 @@ void SelectPlaybackDevice()
 
 void UnloadSound(int iSound)
 {
-	for (int i = 0; i < NumActivePlaybackDevices; i++)
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
 		if (SoundLoaded[i][iSound] == true)
 		{
