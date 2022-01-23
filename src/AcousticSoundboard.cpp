@@ -283,84 +283,7 @@ void DrawGUI()
 	ImGui::SetNextWindowPos(viewport->WorkPos);
 	ImGui::SetNextWindowSize(viewport->WorkSize);
 	ImGui::Begin("Audio", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
-	// ---------- Hotkeys table ----------
-	ImGui::BeginTable("Sounds", 3, GUITableFlags);
-	ImGui::TableSetupColumn(" #  Hotkey", ImGuiTableColumnFlags_WidthFixed);
-	ImGui::TableSetupColumn("File");
-	ImGui::TableSetupColumn("Reset file", ImGuiTableColumnFlags_WidthFixed);
-	ImGui::TableHeadersRow();
-	int firstElement;
-	int lastElement;
-	switch (CurrentPage) 
-	{
-	case 1:
-		firstElement = 0;
-		lastElement = 9;
-		break;
-	case 2:
-		firstElement = 10;
-		lastElement = 19;
-		break;
-	case 3:
-		firstElement = 20;
-		lastElement = 29;
-		break;
-	case 4:
-		firstElement = 30;
-		lastElement = 39;
-		break;
-	case 5:
-		firstElement = 40;
-		lastElement = 49;
-		break;
-	}
-	for (int i = firstElement; i <= lastElement; i++) 
-	{
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn();
-		ImGui::Text("%02d", i + 1);
-		ImGui::SameLine();
-		ImGui::PushID(i);
-		if (ImGui::Button("Set Hotkey") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
-			CaptureKeys = true;
-			CapturedKeyIndex = i;
-			ShowKeyCaptureWindow = true;
-		}
-		ImGui::PopID();
-
-		ImGui::SameLine();
-		ImGui::Text("%s", Hotkeys[i].modText);
-		ImGui::SameLine();
-		ImGui::Text("%s", Hotkeys[i].keyText);
-		ImGui::TableNextColumn();
-		ImGui::PushID(i);
-		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn)) 
-		{
-			UnloadSound(i);
-			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
-			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
-			if (AudioFilePath != NULL) 
-			{
-				strcpy(Hotkeys[i].filePath, AudioFilePath);
-				GetFileNameFromPath(Hotkeys[i].fileName, AudioFilePath);
-			}
-		}
-		ImGui::PopID();
-		ImGui::SameLine();
-		ImGui::Text(Hotkeys[i].fileName);
-		ImGui::TableNextColumn();
-		ImGui::PushID(i);
-		if (ImGui::Button("Reset") == true) 
-		{
-			Hotkeys[i].fileName[0] = '\0';
-			Hotkeys[i].filePath[0] = '\0';
-			UnloadSound(i);
-		}
-		ImGui::PopID();
-	}
-	ImGui::EndTable(); // ---------- END Hotkeys table ----------
-	
-
+	DrawHotkeyTable();
 		// ---------- Page display ----------
 	ImGui::Text("%s %d %s %d", "Page ", CurrentPage, " / ", 5);
 	if (ImGui::Button("< Previous Page") == true) {
@@ -478,77 +401,11 @@ void DrawGUI()
 	}
 	ImGui::EndTable();
 
-	// ---------- Key Capture Window ----------
-	if (ShowKeyCaptureWindow == true) 
+	if (ShowKeyCaptureWindow == true)
 	{
-		CenterNextWindow();
-		ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow);
-		ImGui::Text("SHIFT, CTRL, ALT combos are supported");
-		ImGui::NewLine();
-		ImGui::Text("Press a key . . .");
-		ImGui::Text("%s", CapturedKeyModText);
-		ImGui::Text("%s", CapturedKeyText);
-		ImGui::NewLine();
-		ImGui::Text("%s", "ENTER to set");
-		ImGui::Text("%s", "BACKSPCE to clear");
-		ImGui::NewLine();
-		if (UserPressedEscape)
-			ShowKeyCaptureWindow = false;
-
-		if (ImGui::Button("Set") == true || ImGui::IsItemFocused() && UserPressedReturn) 
-		{
-			if (CapturedKeyCode == 0) 
-			{
-				Hotkeys[CapturedKeyIndex].keyCode = 0;
-				Hotkeys[CapturedKeyIndex].keyMod = 0;
-				Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-				Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			}
-
-			else 
-			{
-				for (int i = 0; i < NUM_SOUNDS; i++)  
-				{
-					// Compare the captured key with all the stored hotkeys
-					if (Hotkeys[i].keyCode == CapturedKeyCode) 
-					{
-						// Then compare the captured keyMod with the corresponding stored keyMod
-						if (Hotkeys[i].keyMod == CapturedKeyMod)
-						{
-							CapturedKeyInUse = true;
-							ShowKeyCaptureWindow = false;
-						}
-					}
-				}
-
-				if (CapturedKeyInUse == false) 
-				{
-					strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
-					Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
-					strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
-					Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
-				}
-			}
-
-			CaptureKeys = false;
-			ShowKeyCaptureWindow = false;
-			ClearCapturedKey();
-		}
-
-		ImGui::NewLine();
-		if (ImGui::Button("Clear") == true || UserPressedBackspace ||
-			(ImGui::IsItemFocused() && UserPressedReturn)) {
-			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].keyCode = 0;
-			Hotkeys[CapturedKeyIndex].keyMod = 0;
-			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
-			ClearCapturedKey();
-		}
-		ImGui::End();
+		DrawKeyCaptureWindow();
 	}
-
 	CaptureKeys = ShowKeyCaptureWindow;
-	// ----------END Key Capture Window ----------
 
 	// ---------- Key In Use Window ----------
 	if (CapturedKeyInUse == true) {
@@ -581,6 +438,153 @@ void DrawGUI()
 	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
 	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
 		ResetDeviceD3D();
+}
+
+void DrawHotkeyTable()
+{
+	ImGui::BeginTable("Sounds", 3, GUITableFlags);
+	ImGui::TableSetupColumn(" #  Hotkey", ImGuiTableColumnFlags_WidthFixed);
+	ImGui::TableSetupColumn("File");
+	ImGui::TableSetupColumn("Reset file", ImGuiTableColumnFlags_WidthFixed);
+	ImGui::TableHeadersRow();
+	int firstElement;
+	int lastElement;
+	switch (CurrentPage)
+	{
+	case 1:
+		firstElement = 0;
+		lastElement = 9;
+		break;
+	case 2:
+		firstElement = 10;
+		lastElement = 19;
+		break;
+	case 3:
+		firstElement = 20;
+		lastElement = 29;
+		break;
+	case 4:
+		firstElement = 30;
+		lastElement = 39;
+		break;
+	case 5:
+		firstElement = 40;
+		lastElement = 49;
+		break;
+	}
+	for (int i = firstElement; i <= lastElement; i++)
+	{
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+		ImGui::Text("%02d", i + 1);
+		ImGui::SameLine();
+		ImGui::PushID(i);
+		if (ImGui::Button("Set Hotkey") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
+			CaptureKeys = true;
+			CapturedKeyIndex = i;
+			ShowKeyCaptureWindow = true;
+		}
+		ImGui::PopID();
+
+		ImGui::SameLine();
+		ImGui::Text("%s", Hotkeys[i].modText);
+		ImGui::SameLine();
+		ImGui::Text("%s", Hotkeys[i].keyText);
+		ImGui::TableNextColumn();
+		ImGui::PushID(i);
+		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn))
+		{
+			UnloadSound(i);
+			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
+			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
+			if (AudioFilePath != NULL)
+			{
+				strcpy(Hotkeys[i].filePath, AudioFilePath);
+				GetFileNameFromPath(Hotkeys[i].fileName, AudioFilePath);
+			}
+		}
+		ImGui::PopID();
+		ImGui::SameLine();
+		ImGui::Text(Hotkeys[i].fileName);
+		ImGui::TableNextColumn();
+		ImGui::PushID(i);
+		if (ImGui::Button("Reset") == true)
+		{
+			Hotkeys[i].fileName[0] = '\0';
+			Hotkeys[i].filePath[0] = '\0';
+			UnloadSound(i);
+		}
+		ImGui::PopID();
+	}
+	ImGui::EndTable();
+}
+
+void DrawKeyCaptureWindow()
+{
+	CenterNextWindow();
+	ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow);
+	ImGui::Text("SHIFT, CTRL, ALT combos are supported");
+	ImGui::NewLine();
+	ImGui::Text("Press a key . . .");
+	ImGui::Text("%s", CapturedKeyModText);
+	ImGui::Text("%s", CapturedKeyText);
+	ImGui::NewLine();
+	ImGui::Text("%s", "ENTER to set");
+	ImGui::Text("%s", "BACKSPCE to clear");
+	ImGui::NewLine();
+	if (UserPressedEscape)
+		ShowKeyCaptureWindow = false;
+
+	if (ImGui::Button("Set") == true || ImGui::IsItemFocused() && UserPressedReturn)
+	{
+		if (CapturedKeyCode == 0)
+		{
+			Hotkeys[CapturedKeyIndex].keyCode = 0;
+			Hotkeys[CapturedKeyIndex].keyMod = 0;
+			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
+			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
+		}
+
+		else
+		{
+			for (int i = 0; i < NUM_SOUNDS; i++)
+			{
+				// Compare the captured key with all the stored hotkeys
+				if (Hotkeys[i].keyCode == CapturedKeyCode)
+				{
+					// Then compare the captured keyMod with the corresponding stored keyMod
+					if (Hotkeys[i].keyMod == CapturedKeyMod)
+					{
+						CapturedKeyInUse = true;
+						ShowKeyCaptureWindow = false;
+					}
+				}
+			}
+
+			if (CapturedKeyInUse == false)
+			{
+				strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
+				Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
+				strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
+				Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
+			}
+		}
+
+		CaptureKeys = false;
+		ShowKeyCaptureWindow = false;
+		ClearCapturedKey();
+	}
+
+	ImGui::NewLine();
+	if (ImGui::Button("Clear") == true || UserPressedBackspace ||
+		(ImGui::IsItemFocused() && UserPressedReturn)) {
+		Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
+		Hotkeys[CapturedKeyIndex].keyCode = 0;
+		Hotkeys[CapturedKeyIndex].keyMod = 0;
+		Hotkeys[CapturedKeyIndex].modText[0] = '\0';
+		ClearCapturedKey();
+	}
+	ImGui::End();
 }
 
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -1248,11 +1252,6 @@ void SelectCaptureDevice()
 		}
 	}
 	ImGui::End();
-}
-
-void SelectHotkey()
-{
-
 }
 
 void SelectPlaybackDevice()

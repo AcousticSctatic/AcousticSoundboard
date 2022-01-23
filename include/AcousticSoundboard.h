@@ -121,6 +121,8 @@ void CloseCaptureDevice();
 void ClosePlaybackDevices();
 bool CreateDeviceD3D(HWND hWnd);
 void DrawGUI();
+void DrawHotkeyTable();
+void DrawKeyCaptureWindow();
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 char* GetFileNameFromPath(char* const aoDestination, char const* const aSource);
 int InitAudioSystem();
