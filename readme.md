@@ -24,6 +24,7 @@ Notes
 * Num pad keys work, but they do not display as unique text (yet).
 ----------------------------------------
 Help section
+* IMPORTANT: Windows may warn you that this program contains a virus because it hooks the keyboard. Technically, it is a keyloger, but not the malicious kind. Your data stays on your computer only. See the next note below.
 * IMPORTANT: If your hotkeys do not work inside another program, try running Acoustic Soundboard as administrator. This is due to a Windows security feature (integrity levels). In general, you should avoid running programs as administrator, but this one is open source, so you can verify that it is safe to use and compile it yourself.
 * The soundboard only knows about devices that were detected when it started. In other words, if you plug in a microphone or speakers while the sondboard is running, you need to close and restart the soundboard for it to detect them.
 * If your program does not allow you to select a microphone, you may have to set the virtual audio cable as your default recording (input) device in Windows before starting your other program.
