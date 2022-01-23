@@ -12,9 +12,9 @@ Instructions
 * Launch AcousticSoundboard and click "Select Playback Device" and select: 
   1. the device where YOU want to hear the sound
   2. the virtual device (eg virtual audio cable input)
-* Next, click "Select Recording Device" and select your microphone. Then select device the virtual device from the previous step. This is the device where your microphone's audio will be sent.
+* Next, click "Select Recording Device" and select your microphone. Then select the virtual device from the previous step. This is the device where your microphone's audio will be sent.
 * Click "Select file" and select a sound file. Most common file formats are supported.
-* Click "Set hotkey" and set a hotkey that will trigger the sound. You can use SHIFT, CONTROL, or ALT key combos, and you can set up to 50 	hotkeys and sounds.
+* Click "Set hotkey" and set a hotkey that will trigger the sound. You can use SHIFT, CONTROL, or ALT key combos, and you can set up to 50 hotkeys and sounds.
 * Press your hotkey. Have fun!
 
 With this setup, you should be able to select the virtual audio cable as your microphone in your voice call program of choice, and others should hear your voice through your microphone and the sounds you play. When you are finished, close the window and your settings will be saved automatically. Do not close your devices first, or they will be forgotten the next time you run the soundboard. 
