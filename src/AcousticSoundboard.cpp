@@ -182,6 +182,14 @@ void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
 }
 
+void CenterNextWindow()
+{
+	ImVec2 viewportSize = ImGui::GetMainViewport()->Size;
+	ImVec2 viewportCenter = { viewportSize.x / 2, viewportSize.y / 2 };
+	ImGui::SetNextWindowSizeConstraints(ImVec2(500.0f, 500.0f), viewportSize, NULL, NULL);
+	ImGui::SetNextWindowPos(viewportCenter, 0, ImVec2(0.5f, 0.5f));
+}
+
 void ClearCapturedKey() 
 {
 	CapturedKeyCode = 0;
@@ -283,7 +291,8 @@ void DrawGUI()
 	ImGui::TableHeadersRow();
 	int firstElement;
 	int lastElement;
-	switch (CurrentPage) {
+	switch (CurrentPage) 
+	{
 	case 1:
 		firstElement = 0;
 		lastElement = 9;
@@ -305,7 +314,8 @@ void DrawGUI()
 		lastElement = 49;
 		break;
 	}
-	for (int i = firstElement; i <= lastElement; i++) {
+	for (int i = firstElement; i <= lastElement; i++) 
+	{
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn();
 		ImGui::Text("%02d", i + 1);
@@ -469,8 +479,9 @@ void DrawGUI()
 	ImGui::EndTable();
 
 	// ---------- Key Capture Window ----------
-	if (ShowKeyCaptureWindow == true) {
-		ImGui::SetNextWindowSizeConstraints(ImVec2(500.0f, 500.0f), ImGui::GetMainViewport()->Size, NULL, NULL);
+	if (ShowKeyCaptureWindow == true) 
+	{
+		CenterNextWindow();
 		ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow);
 		ImGui::Text("SHIFT, CTRL, ALT combos are supported");
 		ImGui::NewLine();
@@ -1187,6 +1198,7 @@ void SaveDevicesToDatabase()
 
 void SelectCaptureDevice()
 {
+	CenterNextWindow();
 	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
 	if (ShowDuplexDevices == false)
 	{
@@ -1238,8 +1250,14 @@ void SelectCaptureDevice()
 	ImGui::End();
 }
 
+void SelectHotkey()
+{
+
+}
+
 void SelectPlaybackDevice()
 {
+	CenterNextWindow();
 	ImGui::Begin("Select Playback Device (max 2)", &ShowPlaybackDeviceList);
 	ImGui::Text("Select where you want to hear sound (up to 2 devices).\nThis is usually your speakers and a virtual cable input.");
 	ImGui::NewLine();
