@@ -51,23 +51,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	} 
 
 	SaveDevicesToDatabase();
-	/*
-	PrintToLog("log-save.txt", "----------------------------------");
-	char buffer[100];
-	snprintf(buffer, 100, "Active playback devices: %d", NumActivePlaybackDevices);
-	PrintToLog("log-save.txt", buffer);
-	snprintf(buffer, 100, "Active capture devices: %d", NumActiveCaptureDevices);
-	PrintToLog("log-save.txt", buffer);
-	PrintToLog("log-save.txt", "----------------------------------");
-	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
-	{
-		PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
-	}
-	PrintToLog("log-save.txt", CaptureEngine.captureDeviceName);
-	PrintToLog("log-save.txt", CaptureEngine.duplexDeviceName);
-	PrintToLog("log-save.txt", "----------------------------------");
-	PrintToLog("log-save.txt", "\n");
-	*/
 	CloseAudioSystem();
 	DestroyWindow(hwnd);
 	SaveHotkeysToDatabase();
@@ -232,6 +215,7 @@ void CloseCaptureDevice()
 			CaptureDeviceSelected[i] = false;
 
 		NumActiveCaptureDevices = 0;
+		ShowDuplexDevices = false;
 	}
 }
 
@@ -381,6 +365,32 @@ void DrawGUI()
 			CurrentPage++;
 		}
 	} // ---------- END Page display ----------
+
+	#ifdef _DEBUG
+	if (ImGui::Button("Debug info") == true)
+		ShowDebugWindow = true;
+
+	if (ShowDebugWindow == true)
+	{
+		ImGui::Begin("Debug", &ShowDebugWindow);
+		ImGui::Text("NumActivePlaybackDevices: \t %d", NumActivePlaybackDevices);
+		ImGui::Text("NumActiveCaptureDevices: \t %d", NumActiveCaptureDevices);
+		ImGui::NewLine();
+		ImGui::Text("PlaybackEngine 0: \t %s", PlaybackEngines[0].deviceName);
+		ImGui::Text("PlaybackEngine 0 active: \t %i", PlaybackEngines[0].active);
+		ImGui::Text("PlaybackEngine 1: \t %s", PlaybackEngines[1].deviceName);
+		ImGui::Text("PlaybackEngine 1 active: \t %i", PlaybackEngines[1].active);
+		ImGui::NewLine();
+		ImGui::Text("Capture device: \t %s", CaptureEngine.captureDeviceName);
+		ImGui::Text("Duplex device: \t %s", CaptureEngine.duplexDeviceName);
+		ImGui::NewLine();
+		ImGui::Text("Last Playback 0: \t %s", LastPlaybackDeviceNames[0]);
+		ImGui::Text("Last Playback 1: \t %s", LastPlaybackDeviceNames[1]);
+		ImGui::Text("Last Capture: \t %s", LastCaptureDeviceName);
+		ImGui::Text("Last Duplex: \t %s", LastDuplexDeviceName);
+		ImGui::End();
+	}
+	#endif
 
 	if (ImGui::Button("Stop All Sounds") == true) 
 	{
@@ -899,10 +909,8 @@ void LoadDevicesFromDatabase() {
 	sqlite3_close(db);
 	
 	DuplexDeviceIndex = -1;
-	//PrintToLog("log-save.txt", "Try loading playback device");
 	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
-		//PrintToLog("log-save.txt", PlaybackEngines[i].deviceName);
 		for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 		{
 			if (strcmp(pPlaybackDeviceInfos[j].name, LastPlaybackDeviceNames[i]) == 0)
@@ -913,7 +921,7 @@ void LoadDevicesFromDatabase() {
 			}
 		}
 
-		if (strcmp(LastPlaybackDeviceNames[i], LastDuplexDeviceName) == 0)
+		if (strcmp(PlaybackEngines[i].deviceName, LastDuplexDeviceName) == 0)
 		{
 			DuplexDeviceIndex = i;
 		}

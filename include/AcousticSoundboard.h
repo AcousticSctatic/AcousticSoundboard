@@ -94,6 +94,9 @@ bool UserPressedReturn = false;
 bool UserPressedEscape = false;
 bool UserPressedBackspace = false;
 bool WindowShouldClose = false;
+#ifdef _DEBUG
+bool ShowDebugWindow;
+#endif
 
 // Hotkey globals
 DWORD CapturedKeyCode;
