@@ -8,7 +8,7 @@ https://vb-audio.com/Cable/
 If you have suggestions or questions, message me on [discord](https://discord.gg/u65C78qzKs)
 ----------------------------------------
 Instructions
-* Download the zip file under releases (or clone the repo and compile it yourself) and extract to your folder of choice.
+* Download the zip file under releases (or clone the repo and compile it yourself) and extract to your folder of choice. https://github.com/AcousticSctatic/AcousticSoundboard/releases/tag/BETA
 * Launch AcousticSoundboard and click "Select Playback Device" and select: 
   1. the device where YOU want to hear the sound
   2. the virtual device (eg virtual audio cable input)
