@@ -58,7 +58,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 	UnregisterClass(wc.lpszClassName, wc.hInstance);
-
 	return 0;
 }
 
@@ -92,16 +91,13 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			case VK_CONTROL:
 			case VK_SHIFT:
 			case VK_MENU:
-			case VK_UP:
-			case VK_RIGHT:
-			case VK_DOWN:
-			case VK_LEFT:
 			case VK_RETURN:
 			case VK_ESCAPE:
+			case VK_PAUSE:
 			case VK_BACK:
 				ignoreKey = true;
 				break;
-			case VK_TAB: strcpy(CapturedKeyText, "TAB");
+			case VK_TAB: strcpy(CapturedKeyText, "Tab");
 				break;
 			case VK_F1: strcpy(CapturedKeyText, "F1");
 				break;
@@ -126,6 +122,62 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			case VK_F11: strcpy(CapturedKeyText, "F11");
 				break;
 			case VK_F12: strcpy(CapturedKeyText, "F12");
+				break;
+			case VK_SCROLL:strcpy(CapturedKeyText, "Scroll Lock");
+				break;
+			case VK_INSERT: strcpy(CapturedKeyText, "Insert");
+				break;
+			case VK_HOME: strcpy(CapturedKeyText, "Home");
+				break;
+			case VK_PRIOR: strcpy(CapturedKeyText, "Page Up");
+				break;
+			case VK_DELETE: strcpy(CapturedKeyText, "Delete");
+				break;
+			case VK_END: strcpy(CapturedKeyText, "End");
+				break;
+			case VK_NEXT: strcpy(CapturedKeyText, "Page Down");
+				break;
+			case VK_CAPITAL: strcpy(CapturedKeyText, "Caps Lock");
+				break;
+			case VK_NUMLOCK: strcpy(CapturedKeyText, "Num Lock");
+				break;
+			case VK_DIVIDE: strcpy(CapturedKeyText, "Num /");
+				break;
+			case VK_MULTIPLY: strcpy(CapturedKeyText, "Num *");
+				break;
+			case VK_SUBTRACT: strcpy(CapturedKeyText, "Num -");
+				break;
+			case VK_ADD: strcpy(CapturedKeyText, "Num +");
+				break;
+			case VK_DECIMAL: strcpy(CapturedKeyText, "Num .");
+				break;
+			case VK_NUMPAD0: strcpy(CapturedKeyText, "Num 0");
+				break;
+			case VK_NUMPAD1: strcpy(CapturedKeyText, "Num 1");
+				break;
+			case VK_NUMPAD2: strcpy(CapturedKeyText, "Num 2");
+				break;
+			case VK_NUMPAD3: strcpy(CapturedKeyText, "Num 3");
+				break;
+			case VK_NUMPAD4: strcpy(CapturedKeyText, "Num 4");
+				break;
+			case VK_NUMPAD5: strcpy(CapturedKeyText, "Num 5");
+				break;
+			case VK_NUMPAD6: strcpy(CapturedKeyText, "Num 6");
+				break;
+			case VK_NUMPAD7: strcpy(CapturedKeyText, "Num 7");
+				break;
+			case VK_NUMPAD8: strcpy(CapturedKeyText, "Num 8");
+				break;
+			case VK_NUMPAD9: strcpy(CapturedKeyText, "Num 9");
+				break;
+			case VK_UP: strcpy(CapturedKeyText, "Up");
+				break;
+			case VK_RIGHT: strcpy(CapturedKeyText, "Right");
+				break;
+			case VK_DOWN: strcpy(CapturedKeyText, "Down");
+				break;
+			case VK_LEFT: strcpy(CapturedKeyText, "Left");
 				break;
 			default:
 				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
@@ -282,7 +334,7 @@ void DrawGUI()
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(viewport->WorkPos);
 	ImGui::SetNextWindowSize(viewport->WorkSize);
-	ImGui::Begin("Audio", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+	ImGui::Begin("Audio", NULL, GUIWindowFlags);
 	DrawHotkeyTable();
 		// ---------- Page display ----------
 	ImGui::Text("%s %d %s %d", "Page ", CurrentPage, " / ", 5);
@@ -411,9 +463,12 @@ void DrawGUI()
 	if (CapturedKeyInUse == true) {
 		ImGui::Begin("Invalid Key", &CapturedKeyInUse, ImGuiWindowFlags_AlwaysAutoResize);
 		ImGui::Text("Key already in use.\nClose this window and try again.");
-		if (ImGui::Button(" OK ") == true || UserPressedEscape ||
-			ImGui::IsItemFocused() && UserPressedReturn)
+		if (ImGui::Button(" OK ") == true || UserPressedEscape || UserPressedReturn)
 		{
+			if (UserPressedEscape == true)
+				UserPressedEscape = false;
+			if (UserPressedReturn == true)
+				UserPressedReturn = false;
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
@@ -479,7 +534,9 @@ void DrawHotkeyTable()
 		ImGui::Text("%02d", i + 1);
 		ImGui::SameLine();
 		ImGui::PushID(i);
-		if (ImGui::Button("Set Hotkey") == true || (ImGui::IsItemFocused() && UserPressedReturn)) {
+		if (ImGui::Button("Set Hotkey") == true || ImGui::IsItemFocused() && UserPressedReturn) {
+			if (UserPressedReturn == true)
+				UserPressedReturn = false;
 			CaptureKeys = true;
 			CapturedKeyIndex = i;
 			ShowKeyCaptureWindow = true;
@@ -494,6 +551,8 @@ void DrawHotkeyTable()
 		ImGui::PushID(i);
 		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn))
 		{
+			if (UserPressedReturn == true)
+				UserPressedReturn = false;
 			UnloadSound(i);
 			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
 			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
@@ -508,8 +567,11 @@ void DrawHotkeyTable()
 		ImGui::Text(Hotkeys[i].fileName);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
-		if (ImGui::Button("Reset") == true)
+		if (ImGui::Button("Reset") == true || ImGui::IsItemFocused() && UserPressedReturn)
 		{
+			if (UserPressedReturn == true)
+				UserPressedReturn = false;
+
 			Hotkeys[i].fileName[0] = '\0';
 			Hotkeys[i].filePath[0] = '\0';
 			UnloadSound(i);
@@ -522,7 +584,7 @@ void DrawHotkeyTable()
 void DrawKeyCaptureWindow()
 {
 	CenterNextWindow();
-	ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow);
+	ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow, ImGuiWindowFlags_NoNav);
 	ImGui::Text("SHIFT, CTRL, ALT combos are supported");
 	ImGui::NewLine();
 	ImGui::Text("Press a key . . .");
@@ -531,12 +593,19 @@ void DrawKeyCaptureWindow()
 	ImGui::NewLine();
 	ImGui::Text("%s", "ENTER to set");
 	ImGui::Text("%s", "BACKSPCE to clear");
+	ImGui::Text("%s", "ESCAPE to exit");
 	ImGui::NewLine();
-	if (UserPressedEscape)
-		ShowKeyCaptureWindow = false;
-
-	if (ImGui::Button("Set") == true || ImGui::IsItemFocused() && UserPressedReturn)
+	if (UserPressedEscape == true)
 	{
+		UserPressedEscape = false;
+		ShowKeyCaptureWindow = false;
+	}
+
+	if (ImGui::Button("Set") == true || UserPressedReturn)
+	{
+		if (UserPressedReturn == true)
+			UserPressedReturn = false;
+
 		if (CapturedKeyCode == 0)
 		{
 			Hotkeys[CapturedKeyIndex].keyCode = 0;
@@ -576,8 +645,10 @@ void DrawKeyCaptureWindow()
 	}
 
 	ImGui::NewLine();
-	if (ImGui::Button("Clear") == true || UserPressedBackspace ||
-		(ImGui::IsItemFocused() && UserPressedReturn)) {
+	if (ImGui::Button("Clear") == true || UserPressedBackspace) {
+		if (UserPressedBackspace == true)
+			UserPressedBackspace = false;
+
 		Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
 		Hotkeys[CapturedKeyIndex].keyCode = 0;
 		Hotkeys[CapturedKeyIndex].keyMod = 0;
@@ -1056,6 +1127,7 @@ void ResetDeviceD3D()
 void ResetNavKeys() {
 	UserPressedReturn = false;
 	UserPressedEscape = false;
+	UserPressedBackspace = false;
 }
 
 void SaveHotkeysToDatabase() 

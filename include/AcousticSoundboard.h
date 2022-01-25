@@ -56,8 +56,8 @@ static D3DPRESENT_PARAMETERS    g_d3dpp = {};
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 ImFont* MainFont;
 const ImGuiViewport* GUIviewport;
-ImGuiWindowFlags GUIWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus
-	| ImGuiWindowFlags_NoResize;
+ImGuiWindowFlags GUIWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize |
+	ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 ImGuiTableFlags GUITableFlags = ImGuiTableFlags_Borders;
 size_t CurrentPage = 1;
 
