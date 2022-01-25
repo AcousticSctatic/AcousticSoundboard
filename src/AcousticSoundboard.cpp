@@ -266,17 +266,15 @@ void CloseCaptureDevice()
 	{
 		ma_engine_uninit(&CaptureEngine.engine);
 		ma_device_uninit(&CaptureEngine.device);
-		ShowDuplexDevices = false;
-		NumActiveCaptureDevices = 0;
 		CaptureEngine.captureDeviceName[0] = '\0';
 		CaptureEngine.duplexDeviceName[0] = '\0';
-
-		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-			CaptureDeviceSelected[i] = false;
-
 		NumActiveCaptureDevices = 0;
-		ShowDuplexDevices = false;
 	}
+
+	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		CaptureDeviceSelected[i] = false;
+
+	ShowDuplexDevices = false;
 }
 
 void ClosePlaybackDevices()
@@ -392,7 +390,9 @@ void DrawGUI()
 		if (ImGui::Button("Close Devices"))
 		{
 			ClosePlaybackDevices();
+			ShowPlaybackDeviceList = false;
 			CloseCaptureDevice();
+			ShowCaptureDeviceList = false;
 		}
 		ImGui::PopStyleColor();
 	}
