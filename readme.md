@@ -19,12 +19,13 @@ Instructions
 
 With this setup, you should be able to select the virtual audio cable as your microphone in your voice call program of choice, and others should hear your voice through your microphone and the sounds you play. When you are finished, close the window and your settings will be saved automatically. Do not close your devices first, or they will be forgotten the next time you run the soundboard. 
 
-Notes
-* You can press the PAUSE|BREAK key on your keyboard to stop all sounds
+
+
 ----------------------------------------
 Help section
 * IMPORTANT: Windows may warn you that this program contains a virus because it hooks the keyboard. Technically, it is a keylogger, but not the malicious kind. Your data stays on your computer only. See the next note below.
 * IMPORTANT: If your hotkeys do not work inside another program, try running Acoustic Soundboard as administrator. This is due to a Windows security feature (integrity levels). In general, you should avoid running programs as administrator, but this one is open source, so you can verify that it is safe to use and compile it yourself.
+* You can press the PAUSE|BREAK key on your keyboard to stop all sounds
 * The soundboard only knows about devices that were detected when it started. In other words, if you plug in a microphone or speakers while the sondboard is running, you need to close and restart the soundboard for it to detect them.
 * If your program does not allow you to select a microphone, you may have to set the virtual audio cable as your default recording (input) device in Windows before starting your other program.
 * If you want to completely reset all settings, you can simply delete the "hotkeys.db" file the soundboard creates, and you will have a blank slate the next time you start it. You should probably close the program before doing so, though.
