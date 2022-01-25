@@ -21,7 +21,6 @@ With this setup, you should be able to select the virtual audio cable as your mi
 
 Notes
 * You can press the PAUSE|BREAK key on your keyboard to stop all sounds
-* Num pad keys work, but they do not display as unique text (yet).
 ----------------------------------------
 Help section
 * IMPORTANT: Windows may warn you that this program contains a virus because it hooks the keyboard. Technically, it is a keylogger, but not the malicious kind. Your data stays on your computer only. See the next note below.
