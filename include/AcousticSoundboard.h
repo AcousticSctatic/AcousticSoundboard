@@ -3,12 +3,10 @@
 * Dear ImGui - Graphical user interface
 * SQLite3 - A databse engine
 * tinyfiledialogs - A tiny, useful library for file dialogs (file explorer on Windows)
+* 
 */
 #pragma once
-#include <stdbool.h>
-#include <stdio.h>
 #include <windows.h>
-#include <winuser.h>
 #include <d3d9.h>
 #include "sqlite3.h"
 #include "tinyfiledialogs.h"
@@ -17,7 +15,6 @@
 #include "imgui_impl_win32.h"
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
-#define MAX_ENGINES 3
 #define MAX_PLAYBACK_DEVICES 2
 #define MAX_SOUNDS 50
 
