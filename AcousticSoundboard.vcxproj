@@ -159,9 +159,12 @@
       <AdditionalDependencies>d3d9.lib;sqlite3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /d /y "$(ProjectDir)\lib\*.dll" "$(OutDir)"
-xcopy /d /y "$(OutDir)\*.dll" "$(OutDir)\Deploy\"
-xcopy /d /y "$(OutDir)\*.exe" "$(OutDir)\Deploy\"</Command>
+      <Command>xcopy /y "$(ProjectDir)\src\readme.txt" "$(OutDIr)\Deploy\"
+xcopy /y "$(ProjectDir)\lib\*.dll" "$(OutDir)"
+xcopy /y /i "$(ProjectDir)\licenses\" "$(OutDir)\Deploy\licenses"
+xcopy /y "$(OutDir)\*.dll" "$(OutDir)\Deploy\"
+xcopy /y "$(OutDir)\*.exe" "$(OutDir)\Deploy\"
+</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
