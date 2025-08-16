@@ -134,7 +134,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>d3d9.lib;sqlite3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /d /y "$(ProjectDir)\lib\*.dll" "$(OutDir)"</Command>
@@ -172,11 +172,11 @@ xcopy /y "$(OutDir)\*.exe" "$(OutDir)\Deploy\Acoustic Soundboard\"
     <ClCompile Include="src\AcousticSoundboard.cpp" />
     <ClCompile Include="src\imgui.cpp" />
     <ClCompile Include="src\imgui_draw.cpp" />
-    <ClCompile Include="src\imgui_impl_dx9.cpp" />
+    <ClCompile Include="src\imgui_impl_dx11.cpp" />
     <ClCompile Include="src\imgui_impl_win32.cpp" />
     <ClCompile Include="src\imgui_tables.cpp" />
     <ClCompile Include="src\imgui_widgets.cpp" />
-    <ClCompile Include="src\tinyfiledialogs.c" />
+    <ClCompile Include="src\miniaudio.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AcousticSoundboard.h" />

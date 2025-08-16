@@ -2,32 +2,49 @@
 * 
 * Dear ImGui - Graphical user interface
 * SQLite3 - A databse engine
-* tinyfiledialogs - A tiny, useful library for file dialogs (file explorer on Windows)
 * 
 */
 #pragma once
 #include <windows.h>
-#include <d3d9.h>
-#include "sqlite3.h"
-#include "tinyfiledialogs.h"
-#include "imgui.h"
-#include "imgui_impl_dx9.h"
-#include "imgui_impl_win32.h"
-#define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
+#include <d3d11.h>
+#include <Pathcch.h>
+#include <stdio.h>
+#include <wchar.h>
+#include <stdint.h>
+#include <time.h>
+#include <sqlite3.h>
+#include <imgui.h>
+#include <imgui_impl_win32.h>
+#include <imgui_impl_dx11.h>
+#include <miniaudio.h>
+#pragma comment(lib,"Shlwapi.lib")
+#pragma comment(lib,"Pathcch.lib")
+#pragma comment(lib,"d3d11.lib")
+#pragma comment(lib,"d3dcompiler.lib")
+#pragma comment(lib,"dxgi.lib")
+#pragma comment(lib,"sqlite3.lib")
 #define MAX_PLAYBACK_DEVICES 2
 #define MAX_SOUNDS 50
 
-//int sampleIndex;
+typedef struct StringUTF8 {
+	int numChars = MAX_PATH;
+	char string[MAX_PATH] = { 0 };
+} StringUTF8;
+
+typedef struct StringUTF16 {
+	int numWideChars = MAX_PATH;
+	wchar_t string[MAX_PATH] = { 0 };
+} StringUTF16;
+
 typedef struct Hotkey {
-	//int index;
-	int keyMod;
-	int keyCode;
-	char modText[MAX_PATH];
-	char keyText[MAX_PATH];
-	char filePath[MAX_PATH];
-	char fileName[MAX_PATH];
-}Hotkey;
+	int keyMod = 0;
+	uint32_t keyCode = 0;
+	StringUTF8 modText;
+	StringUTF16 keyText;
+	StringUTF8 keyTextUTF8;
+	StringUTF16 filePath;
+	StringUTF8 fileNameUTF8;
+} Hotkey;
 
 typedef struct playback_engine {
 	bool active;
@@ -47,38 +64,43 @@ typedef struct capture_engine {
 // GUI Globals
 #define SOUNDS_PER_PAGE 10
 #define NUM_PAGES 5
-static LPDIRECT3D9              g_pD3D = NULL;
-static LPDIRECT3DDEVICE9        g_pd3dDevice = NULL;
-static D3DPRESENT_PARAMETERS    g_d3dpp = {};
+static ID3D11Device* g_pd3dDevice = NULL;
+static ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
+static IDXGISwapChain* g_pSwapChain = NULL;
+static bool g_SwapChainOccluded = false;
+static UINT g_ResizeWidth = 0, g_ResizeHeight = 0;
+static ID3D11RenderTargetView* g_mainRenderTargetView = NULL;
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-ImFont* MainFont;
 const ImGuiViewport* GUIviewport;
 ImGuiWindowFlags GUIWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize |
 	ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 ImGuiTableFlags GUITableFlags = ImGuiTableFlags_Borders;
 size_t CurrentPage = 1;
+StringUTF8 ErrorMsgBuffer;
 
 // Audio Globals
 #define NUM_SOUNDS (SOUNDS_PER_PAGE * NUM_PAGES)
 ma_context Context;
 bool SoundLoaded[MAX_PLAYBACK_DEVICES][NUM_SOUNDS];
 Playback_Engine PlaybackEngines[MAX_PLAYBACK_DEVICES];
-char LastPlaybackDeviceNames[MAX_PLAYBACK_DEVICES][256];
+StringUTF8 SavedPlaybackDeviceName1;
+StringUTF8 SavedPlaybackDeviceName2;
 Capture_Engine CaptureEngine;
-char LastCaptureDeviceName[256];
-char LastDuplexDeviceName[256];
+StringUTF8 SavedCaptureDeviceName;
+StringUTF8 SavedDuplexDeviceName;
 ma_device_info* pPlaybackDeviceInfos;
-ma_uint32 PlaybackDeviceCount;
+uint32_t PlaybackDeviceCount;
 bool* PlaybackDeviceSelected;
 int NumActivePlaybackDevices = 0;
 ma_device_info* pCaptureDeviceInfos;
-ma_uint32 CaptureDeviceCount;
+uint32_t CaptureDeviceCount;
 bool* CaptureDeviceSelected;
 int CaptureDeviceIndex;
 int NumActiveCaptureDevices = 0;
 bool ShowDuplexDevices;
 int DuplexDeviceIndex = 0;
 ma_resource_manager ResourceManager;
+int VolumeDisplay = 100;
 
 // Logical Toggle Globals
 bool CaptureKeys = false;
@@ -91,50 +113,68 @@ bool UserPressedReturn = false;
 bool UserPressedEscape = false;
 bool UserPressedBackspace = false;
 bool WindowShouldClose = false;
+bool DisplayAudioErrorMessage = false;
 #ifdef _DEBUG
 bool ShowDebugWindow;
 #endif
 
 // Hotkey globals
-DWORD CapturedKeyCode;
+uint32_t CapturedKeyCode;
 int CapturedKeyIndex = 0;
-char CapturedKeyText[MAX_PATH];
+StringUTF16 CapturedKeyText;
+StringUTF8 CapturedKeyTextUTF8;
 int CapturedKeyMod;
-char CapturedKeyModText[MAX_PATH];
+StringUTF8 CapturedKeyModText;
 Hotkey Hotkeys[NUM_SOUNDS];
 
-char FilePath[MAX_PATH];
 sqlite3* db;
 HHOOK KeyboardHook;
+
+
+StringUTF16 StartingDirectory;
+StringUTF16 PathToDatabase;
+StringUTF8 PathToDatabaseUTF8;
+StringUTF16 PathToErrorLog;
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow);
 LRESULT WINAPI Win32Callback(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
-void CenterNextWindow();
+void CenterNextWindow(float minWidth, float minHeight);
+void CleanupDeviceD3D();
+void CleanupRenderTarget();
 void ClearCapturedKey();
 void CloseAudioSystem();
 void CloseCaptureDevice();
 void ClosePlaybackDevices();
-bool CreateDeviceD3D(HWND hWnd);
+void CreateDeviceD3D(HWND hWnd);
+void CreateRenderTarget();
+void DecodeUTF8(StringUTF8* str, StringUTF16* wideStr);
 void DrawGUI();
 void DrawHotkeyTable();
 void DrawKeyCaptureWindow();
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
-char* GetFileNameFromPath(char* const aoDestination, char const* const aSource);
-int InitAudioSystem();
+void EncodeUTF8(StringUTF16* wideStr, StringUTF8* str);
+void InitAudioSystem();
 void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_device* duplexDevice, char* duplexDeviceName);
 void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName);
 void InitSQLite();
+void InterpretAudioErrorMessage(ma_result result, StringUTF8* errorMessage);
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
+void LoadConfigFromDatabase();
 void LoadDevicesFromDatabase();
 void LoadHotkeysFromDatabase();
-void PlayAudio(int iEngine, int iSound, const char* filePath);
-void PrintToLog(const char* fileName, const char* logText);
-void ResetDeviceD3D();
+ma_result PlayAudio(uint32_t iEngine, uint32_t iSound, const wchar_t* filePath);
+void PrintToErrorLog(const wchar_t* logText);
+void PrintToErrorLogAndExit(const wchar_t* logText);
+void PrintToLogWin32Error();
 void ResetNavKeys();
+void SaveConfigToDatabase();
 void SaveDevicesToDatabase();
 void SaveHotkeysToDatabase();
 void SelectCaptureDevice();
 void SelectPlaybackDevice();
+void SetVolume();
+void SQLiteCopyColumnText(sqlite3_stmt* stmt, int iRow, int iColumn, const wchar_t* const columnName, StringUTF8* destination);
+void SQLiteCopyColumnText16(sqlite3_stmt* stmt, int iRow, int iColumn, const wchar_t* const columnName, StringUTF16* destination);
 void UnloadSound(int iSound);

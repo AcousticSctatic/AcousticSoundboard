@@ -27,16 +27,16 @@
     <ClCompile Include="src\imgui_widgets.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\tinyfiledialogs.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\AcousticSoundboard.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\imgui_impl_dx9.cpp">
+    <ClCompile Include="src\imgui_impl_win32.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\imgui_impl_win32.cpp">
+    <ClCompile Include="src\imgui_impl_dx11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\miniaudio.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

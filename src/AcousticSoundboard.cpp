@@ -1,43 +1,76 @@
 #include "AcousticSoundboard.h"
+// TODO: Test long filenames
+// TODO: Test long filenames with Arabic
+// TODO: Clean up readme
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
 {
+	GetModuleFileNameW(NULL, StartingDirectory.string, MAX_PATH);
+	ImGui_ImplWin32_EnableDpiAwareness();
+	float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
+
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, Win32Callback, 0L, 0L,
 		GetModuleHandleW(NULL), LoadIcon(hInstance, MAKEINTRESOURCE(101)),
 		NULL, NULL, NULL, (L"Acoustic Soundboard"), NULL };
 	RegisterClassEx(&wc);
 	HWND hwnd = CreateWindow(wc.lpszClassName, (L"Acoustic Soundboard"),
-		WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
+		WS_OVERLAPPEDWINDOW, 100, 100, (int)(1280 * main_scale), (int)(800 * main_scale), NULL, NULL, wc.hInstance, NULL);
 
-	if (!CreateDeviceD3D(hwnd))
-		return 1;
-
-	if (InitAudioSystem() < 0) 
-	{
-		// Handle error
-	}
-
+	CreateDeviceD3D(hwnd);
+	InitAudioSystem();
 	ShowWindow(hwnd, SW_SHOWDEFAULT);
 	UpdateWindow(hwnd);
 
 	KeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, &KeyboardHookCallback, GetModuleHandle(NULL), 0);
-	if (KeyboardHook == NULL) 
-		PrintToLog("log-error.txt", "SetWindowsHookEx failed");
+	if (KeyboardHook == NULL)
+	{
+		PrintToErrorLogAndExit(L"SetWindowsHookEx failed. Cannot continue.");
+	}
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGuiIO& io = ImGui::GetIO();
+	(void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
-	MainFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f);
+	io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f);
+	ImGuiStyle& style = ImGui::GetStyle();
 	ImGui::StyleColorsDark();
+	style.ScaleAllSizes(main_scale);
+	style.FontScaleDpi = main_scale;
 	ImGui_ImplWin32_Init(hwnd);
-	ImGui_ImplDX9_Init(g_pd3dDevice);
+	ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
+	long retVal = PathCchRemoveFileSpec(StartingDirectory.string, StartingDirectory.numWideChars);
+	if (retVal != 0)
+	{
+		return 1;
+	}
+	bool success = SetCurrentDirectoryW(StartingDirectory.string);
+	if (success == false)
+	{
+		PrintToLogWin32Error();
+		return 1;
+	}
+	wmemcpy(PathToErrorLog.string, StartingDirectory.string, StartingDirectory.numWideChars);
+	retVal = PathCchAppend(PathToErrorLog.string, PathToErrorLog.numWideChars, L"log-error.txt");
+	if (retVal != 0)
+	{
+		return 1;
+	}	
+	wmemcpy(PathToDatabase.string, StartingDirectory.string, StartingDirectory.numWideChars);
+	retVal = PathCchAppend(PathToDatabase.string, PathToDatabase.numWideChars, L"hotkeys.db");
+	if (retVal != 0)
+	{
+		return 1;
+	}
+
+	EncodeUTF8(&PathToDatabase, &PathToDatabaseUTF8);
 	InitSQLite();
 	LoadHotkeysFromDatabase();
 	LoadDevicesFromDatabase();
+	LoadConfigFromDatabase();
+	SetVolume();
 
-	unsigned int LoopCounter = 0;
 	while (WindowShouldClose == false) 
 	{
 		MSG msg;
@@ -45,6 +78,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
+			// Handle window being minimized or screen locked
+			if (g_SwapChainOccluded && g_pSwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
+			{
+				::Sleep(10);
+				continue;
+			}
+			g_SwapChainOccluded = false;
 			DrawGUI();
 			ResetNavKeys();
 		}
@@ -52,11 +92,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 
 	SaveDevicesToDatabase();
 	CloseAudioSystem();
-	DestroyWindow(hwnd);
 	SaveHotkeysToDatabase();
-	ImGui_ImplDX9_Shutdown();
+	SaveConfigToDatabase();
+	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
+	CleanupDeviceD3D();
+	DestroyWindow(hwnd);
 	UnregisterClass(wc.lpszClassName, wc.hInstance);
 	return 0;
 }
@@ -87,7 +129,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 		{
 			bool ignoreKey = false;
 			switch (wParam)
-			{ // These fall through. We are purposefully ignoring these keys.
+			{ // These fall through. 
 			case VK_CONTROL:
 			case VK_SHIFT:
 			case VK_MENU:
@@ -95,113 +137,125 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			case VK_ESCAPE:
 			case VK_PAUSE:
 			case VK_BACK:
+			case VK_LWIN:
+			case VK_RWIN:
 				ignoreKey = true;
+				break; //We are purposefully ignoring the above keys.
+			case VK_TAB: wcscpy(CapturedKeyText.string, L"Tab");
 				break;
-			case VK_TAB: strcpy(CapturedKeyText, "Tab");
+			case VK_F1: wcscpy(CapturedKeyText.string, L"F1");
 				break;
-			case VK_F1: strcpy(CapturedKeyText, "F1");
+			case VK_F2: wcscpy(CapturedKeyText.string, L"F2");
 				break;
-			case VK_F2: strcpy(CapturedKeyText, "F2");
+			case VK_F3: wcscpy(CapturedKeyText.string, L"F3");
 				break;
-			case VK_F3: strcpy(CapturedKeyText, "F3");
+			case VK_F4: wcscpy(CapturedKeyText.string, L"F4");
 				break;
-			case VK_F4: strcpy(CapturedKeyText, "F4");
+			case VK_F5: wcscpy(CapturedKeyText.string, L"F5");
 				break;
-			case VK_F5: strcpy(CapturedKeyText, "F5");
+			case VK_F6: wcscpy(CapturedKeyText.string, L"F6");
 				break;
-			case VK_F6: strcpy(CapturedKeyText, "F6");
+			case VK_F7: wcscpy(CapturedKeyText.string, L"F7");
 				break;
-			case VK_F7: strcpy(CapturedKeyText, "F7");
+			case VK_F8: wcscpy(CapturedKeyText.string, L"F8");
 				break;
-			case VK_F8: strcpy(CapturedKeyText, "F8");
+			case VK_F9: wcscpy(CapturedKeyText.string, L"F9");
 				break;
-			case VK_F9: strcpy(CapturedKeyText, "F9");
+			case VK_F10: wcscpy(CapturedKeyText.string, L"F10");
 				break;
-			case VK_F10: strcpy(CapturedKeyText, "F10");
+			case VK_F11: wcscpy(CapturedKeyText.string, L"F11");
 				break;
-			case VK_F11: strcpy(CapturedKeyText, "F11");
+			case VK_F12: wcscpy(CapturedKeyText.string, L"F12");
 				break;
-			case VK_F12: strcpy(CapturedKeyText, "F12");
+			case VK_SCROLL:wcscpy(CapturedKeyText.string, L"Scroll Lock");
 				break;
-			case VK_SCROLL:strcpy(CapturedKeyText, "Scroll Lock");
+			case VK_INSERT: wcscpy(CapturedKeyText.string, L"Insert");
 				break;
-			case VK_INSERT: strcpy(CapturedKeyText, "Insert");
+			case VK_HOME: wcscpy(CapturedKeyText.string, L"Home");
 				break;
-			case VK_HOME: strcpy(CapturedKeyText, "Home");
+			case VK_PRIOR: wcscpy(CapturedKeyText.string, L"Page Up");
 				break;
-			case VK_PRIOR: strcpy(CapturedKeyText, "Page Up");
+			case VK_DELETE: wcscpy(CapturedKeyText.string, L"Delete");
 				break;
-			case VK_DELETE: strcpy(CapturedKeyText, "Delete");
+			case VK_END: wcscpy(CapturedKeyText.string, L"End");
 				break;
-			case VK_END: strcpy(CapturedKeyText, "End");
+			case VK_NEXT: wcscpy(CapturedKeyText.string, L"Page Down");
 				break;
-			case VK_NEXT: strcpy(CapturedKeyText, "Page Down");
+			case VK_CAPITAL: wcscpy(CapturedKeyText.string, L"Caps Lock");
 				break;
-			case VK_CAPITAL: strcpy(CapturedKeyText, "Caps Lock");
+			case VK_NUMLOCK: wcscpy(CapturedKeyText.string, L"Num Lock");
 				break;
-			case VK_NUMLOCK: strcpy(CapturedKeyText, "Num Lock");
+			case VK_DIVIDE: wcscpy(CapturedKeyText.string, L"Num /");
 				break;
-			case VK_DIVIDE: strcpy(CapturedKeyText, "Num /");
+			case VK_MULTIPLY: wcscpy(CapturedKeyText.string, L"Num *");
 				break;
-			case VK_MULTIPLY: strcpy(CapturedKeyText, "Num *");
+			case VK_SUBTRACT: wcscpy(CapturedKeyText.string, L"Num -");
 				break;
-			case VK_SUBTRACT: strcpy(CapturedKeyText, "Num -");
+			case VK_ADD: wcscpy(CapturedKeyText.string, L"Num +");
 				break;
-			case VK_ADD: strcpy(CapturedKeyText, "Num +");
+			case VK_DECIMAL: wcscpy(CapturedKeyText.string, L"Num .");
 				break;
-			case VK_DECIMAL: strcpy(CapturedKeyText, "Num .");
+			case VK_NUMPAD0: wcscpy(CapturedKeyText.string, L"Num 0");
 				break;
-			case VK_NUMPAD0: strcpy(CapturedKeyText, "Num 0");
+			case VK_NUMPAD1: wcscpy(CapturedKeyText.string, L"Num 1");
 				break;
-			case VK_NUMPAD1: strcpy(CapturedKeyText, "Num 1");
+			case VK_NUMPAD2: wcscpy(CapturedKeyText.string, L"Num 2");
 				break;
-			case VK_NUMPAD2: strcpy(CapturedKeyText, "Num 2");
+			case VK_NUMPAD3: wcscpy(CapturedKeyText.string, L"Num 3");
 				break;
-			case VK_NUMPAD3: strcpy(CapturedKeyText, "Num 3");
+			case VK_NUMPAD4: wcscpy(CapturedKeyText.string, L"Num 4");
 				break;
-			case VK_NUMPAD4: strcpy(CapturedKeyText, "Num 4");
+			case VK_NUMPAD5: wcscpy(CapturedKeyText.string, L"Num 5");
 				break;
-			case VK_NUMPAD5: strcpy(CapturedKeyText, "Num 5");
+			case VK_NUMPAD6: wcscpy(CapturedKeyText.string, L"Num 6");
 				break;
-			case VK_NUMPAD6: strcpy(CapturedKeyText, "Num 6");
+			case VK_NUMPAD7: wcscpy(CapturedKeyText.string, L"Num 7");
 				break;
-			case VK_NUMPAD7: strcpy(CapturedKeyText, "Num 7");
+			case VK_NUMPAD8: wcscpy(CapturedKeyText.string, L"Num 8");
 				break;
-			case VK_NUMPAD8: strcpy(CapturedKeyText, "Num 8");
+			case VK_NUMPAD9: wcscpy(CapturedKeyText.string, L"Num 9");
 				break;
-			case VK_NUMPAD9: strcpy(CapturedKeyText, "Num 9");
+			case VK_UP: wcscpy(CapturedKeyText.string, L"Up");
 				break;
-			case VK_UP: strcpy(CapturedKeyText, "Up");
+			case VK_RIGHT: wcscpy(CapturedKeyText.string, L"Right");
 				break;
-			case VK_RIGHT: strcpy(CapturedKeyText, "Right");
+			case VK_DOWN: wcscpy(CapturedKeyText.string, L"Down");
 				break;
-			case VK_DOWN: strcpy(CapturedKeyText, "Down");
-				break;
-			case VK_LEFT: strcpy(CapturedKeyText, "Left");
+			case VK_LEFT: wcscpy(CapturedKeyText.string, L"Left");
 				break;
 			default:
-				GetKeyNameTextW(lParam, (LPWSTR)CapturedKeyText, sizeof(char) * MAX_PATH);
+				const int scanCode = (lParam >> 16) & 0x00ff;
+				BYTE keyboardState[256];
+				bool gotKeyboardState = GetKeyboardState(keyboardState);
+				if (gotKeyboardState == false)
+				{
+					PrintToLogWin32Error();
+				}
+				keyboardState[VK_CONTROL] = 0; // Zero out the byte that indicates control characters because we don't want those
+				keyboardState[VK_SHIFT] = 0; // Zero out the byte that indicates SHIFT
+				ToUnicode((uint32_t)wParam, scanCode, keyboardState, CapturedKeyText.string, CapturedKeyText.numWideChars - 1, 0); // Subtract 1 from the array chars because Windows may not null terminate it
+				CharUpperW(CapturedKeyText.string);
 				break;
 			}
 
 			if (ignoreKey == false)
 			{
-				CapturedKeyCode = wParam;
+				CapturedKeyCode = (uint32_t)wParam;
 				CapturedKeyMod = 0;
-				CapturedKeyModText[0] = '\0';
+				EncodeUTF8(&CapturedKeyText, &CapturedKeyTextUTF8);
 				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
 				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
 				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
 				if (shiftDown) {
-					strcpy(CapturedKeyModText, "SHIFT +");
+					strcpy(CapturedKeyModText.string, "SHIFT +");
 					CapturedKeyMod = VK_SHIFT;
 				}
 				else if (ctrlDown) {
-					strcpy(CapturedKeyModText, "CTRL +");
+					strcpy(CapturedKeyModText.string, "CTRL +");
 					CapturedKeyMod = VK_CONTROL;
 				}
 				else if (altDown) {
-					strcpy(CapturedKeyModText, "ALT +");
+					strcpy(CapturedKeyModText.string, "ALT +");
 					CapturedKeyMod = VK_MENU;
 				}
 			}
@@ -210,12 +264,12 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 	}
 	case WM_SIZE:
 	{
-		if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+		if (wParam == SIZE_MINIMIZED)
 		{
-			g_d3dpp.BackBufferWidth = LOWORD(lParam);
-			g_d3dpp.BackBufferHeight = HIWORD(lParam);
-			ResetDeviceD3D();
+			break;
 		}
+		g_ResizeWidth = (UINT)LOWORD(lParam); // Queue resize
+		g_ResizeHeight = (UINT)HIWORD(lParam);
 		break;
 	}
 	case WM_CLOSE:
@@ -234,20 +288,34 @@ void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
 }
 
-void CenterNextWindow()
+void CenterNextWindow(float minWidth, float minHeight)
 {
 	ImVec2 viewportSize = ImGui::GetMainViewport()->Size;
 	ImVec2 viewportCenter = { viewportSize.x / 2, viewportSize.y / 2 };
-	ImGui::SetNextWindowSizeConstraints(ImVec2(500.0f, 500.0f), viewportSize, NULL, NULL);
+	ImGui::SetNextWindowSizeConstraints(ImVec2(minWidth, minHeight), viewportSize, NULL, NULL);
 	ImGui::SetNextWindowPos(viewportCenter, 0, ImVec2(0.5f, 0.5f));
+}
+
+void CleanupDeviceD3D()
+{
+	CleanupRenderTarget();
+	if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = nullptr; }
+	if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = nullptr; }
+	if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = nullptr; }
+}
+
+void CleanupRenderTarget()
+{
+	if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = nullptr; }
 }
 
 void ClearCapturedKey() 
 {
 	CapturedKeyCode = 0;
 	CapturedKeyMod = 0;
-	CapturedKeyText[0] = '\0';
-	CapturedKeyModText[0] = '\0';
+	wmemset(CapturedKeyText.string, L'\0', CapturedKeyText.numWideChars);
+	memset(CapturedKeyTextUTF8.string,'\0', CapturedKeyTextUTF8.numChars);
+	memset(CapturedKeyModText.string,'\0', CapturedKeyModText.numChars);
 }
 
 void CloseAudioSystem()
@@ -302,33 +370,90 @@ void ClosePlaybackDevices()
 	NumActivePlaybackDevices = 0;
 
 	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+	{
 		PlaybackDeviceSelected[i] = false;
+	}
 }
 
-bool CreateDeviceD3D(HWND hWnd)
+void CreateDeviceD3D(HWND hWnd)
 {
-	if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
-		return false;
+	DXGI_SWAP_CHAIN_DESC sd;
+	ZeroMemory(&sd, sizeof(sd));
+	sd.BufferCount = 2;
+	sd.BufferDesc.Width = 0;
+	sd.BufferDesc.Height = 0;
+	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	sd.BufferDesc.RefreshRate.Numerator = 60;
+	sd.BufferDesc.RefreshRate.Denominator = 1;
+	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	sd.OutputWindow = hWnd;
+	sd.SampleDesc.Count = 1;
+	sd.SampleDesc.Quality = 0;
+	sd.Windowed = TRUE;
+	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
-	ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
-	g_d3dpp.Windowed = TRUE;
-	g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-	g_d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
-	g_d3dpp.EnableAutoDepthStencil = TRUE;
-	g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
-	g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
-	if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
-		D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
-		return false;
+	UINT createDeviceFlags = 0;
+	D3D_FEATURE_LEVEL featureLevel;
+	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+	HRESULT res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+	if (res == DXGI_ERROR_UNSUPPORTED) // Try high-performance WARP software driver if hardware is not available.
+	{
+		res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+	}
+	if (res != S_OK)
+	{
+		PrintToErrorLog(L"Failed to create Direct3D device. Cannot continue.");
+		exit(1);
+	}
 
-	return true;
+	CreateRenderTarget();
+	return;
+}
+
+void CreateRenderTarget()
+{
+	ID3D11Texture2D* pBackBuffer = NULL;
+	g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+	if (pBackBuffer != NULL)
+	{
+		g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_mainRenderTargetView);
+		pBackBuffer->Release();
+	}
+}
+
+void DecodeUTF8(StringUTF8* str, StringUTF16* wideStr)
+{
+	str->string[str->numChars - 1] = '\0';
+	int numCharsRequired = 0;
+	numCharsRequired = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str->string, -1, NULL, 0);
+	if (wideStr->numWideChars < numCharsRequired)
+	{
+		PrintToErrorLog(L"DecodeUTF8() the first call to MultiByteToWideChar found the buffer size required was larger than the given number of chars in the UTF-16 string (variable wideStr)");
+		exit(1); // This error is considered unrecoverable and I want it to be very visible (app closing)
+	}
+	int retVal = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str->string, -1, wideStr->string, numCharsRequired);
+	if (retVal == 0)
+	{
+		PrintToLogWin32Error();
+	}
 }
 
 void DrawGUI() 
 {
-	ImGui_ImplDX9_NewFrame();
+	// Handle window resize (we don't resize directly in the WM_SIZE handler)
+	if (g_ResizeWidth != 0 && g_ResizeHeight != 0)
+	{
+		CleanupRenderTarget();
+		g_pSwapChain->ResizeBuffers(0, g_ResizeWidth, g_ResizeHeight, DXGI_FORMAT_UNKNOWN, 0);
+		g_ResizeWidth = g_ResizeHeight = 0;
+		CreateRenderTarget();
+	}
+
+	// Start the Dear ImGui frame
+	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
+	ImGui::NewFrame();	
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(viewport->WorkPos);
 	ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -367,18 +492,29 @@ void DrawGUI()
 		ImGui::Text("Capture device: \t %s", CaptureEngine.captureDeviceName);
 		ImGui::Text("Duplex device: \t %s", CaptureEngine.duplexDeviceName);
 		ImGui::NewLine();
-		ImGui::Text("Last Playback 0: \t %s", LastPlaybackDeviceNames[0]);
-		ImGui::Text("Last Playback 1: \t %s", LastPlaybackDeviceNames[1]);
-		ImGui::Text("Last Capture: \t %s", LastCaptureDeviceName);
-		ImGui::Text("Last Duplex: \t %s", LastDuplexDeviceName);
+		ImGui::Text("Last Playback 0: \t %s", SavedPlaybackDeviceName1.string);
+		ImGui::Text("Last Playback 1: \t %s", SavedPlaybackDeviceName2.string);
+		ImGui::Text("Last Capture: \t %s", SavedCaptureDeviceName.string);
+		ImGui::Text("Last Duplex: \t %s", SavedDuplexDeviceName.string);
 		ImGui::End();
 	}
 	#endif
 
+	ImGui::NewLine();
+	ImGui::Text("Volume");
+	ImGui::PushItemWidth(150.0f);
+	if (ImGui::SliderInt("##", &VolumeDisplay, 0, 100))
+	{
+		SetVolume();
+	}
+	ImGui::NewLine();
+
 	if (ImGui::Button("Stop All Sounds") == true) 
 	{
 		for (int i = 0; i < NUM_SOUNDS; i++)
+		{
 			UnloadSound(i);
+		}
 	}
 	ImGui::SameLine();
 	ImGui::Text("Pause | Break");
@@ -405,13 +541,19 @@ void DrawGUI()
 	if (NumActivePlaybackDevices < MAX_PLAYBACK_DEVICES)
 	{
 		if (ImGui::Button("Select Playback Device"))
+		{
 			ShowPlaybackDeviceList = true;
+		}
 
 		if (UserPressedEscape == true)
+		{
 			ShowPlaybackDeviceList = false;
+		}
 
 		if (ShowPlaybackDeviceList)
+		{
 			SelectPlaybackDevice();
+		}
 	}
 	else
 	{
@@ -434,13 +576,19 @@ void DrawGUI()
 	if (NumActiveCaptureDevices <= 0)
 	{
 		if (ImGui::Button("Select Recording Device"))
+		{
 			ShowCaptureDeviceList = true;
+		}
 
 		if (UserPressedEscape == true)
+		{
 			ShowCaptureDeviceList = false;
+		}
 
 		if (ShowCaptureDeviceList)
+		{
 			SelectCaptureDevice();
+		}
 	}
 	ImGui::TableNextRow();
 	ImGui::TableNextColumn();
@@ -460,15 +608,20 @@ void DrawGUI()
 	CaptureKeys = ShowKeyCaptureWindow;
 
 	// ---------- Key In Use Window ----------
-	if (CapturedKeyInUse == true) {
+	if (CapturedKeyInUse == true) 
+	{
 		ImGui::Begin("Invalid Key", &CapturedKeyInUse, ImGuiWindowFlags_AlwaysAutoResize);
 		ImGui::Text("Key already in use.\nClose this window and try again.");
 		if (ImGui::Button(" OK ") == true || UserPressedEscape || UserPressedReturn)
 		{
 			if (UserPressedEscape == true)
+			{
 				UserPressedEscape = false;
+			}
 			if (UserPressedReturn == true)
+			{
 				UserPressedReturn = false;
+			}
 			CapturedKeyInUse = false;
 			CaptureKeys = false;
 		}
@@ -476,23 +629,28 @@ void DrawGUI()
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
-	ImGui::End(); // End main window
-	ImGui::EndFrame();
-	g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
-	g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-	g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-	D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * clear_color.w * 255.0f), (int)(clear_color.y * clear_color.w * 255.0f), (int)(clear_color.z * clear_color.w * 255.0f), (int)(clear_color.w * 255.0f));
-	g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
-	if (g_pd3dDevice->BeginScene() >= 0)
+	// ---------- Audio Error Message Window ----------
+	if (DisplayAudioErrorMessage == true) 
 	{
-		ImGui::Render();
-		ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-		g_pd3dDevice->EndScene();
-	}
+		CenterNextWindow(300.0f, 300.0f);
+		ImGui::Begin("Audio Playback Error", &DisplayAudioErrorMessage, ImGuiWindowFlags_AlwaysAutoResize);
+		ImGui::Text(ErrorMsgBuffer.string);
+		if (ImGui::Button(" OK ") == true || UserPressedEscape || UserPressedReturn)
+		{
+			DisplayAudioErrorMessage = false;
+		}
+		ImGui::End();
+	} // ----------END Audio Error Message Window ----------
 
-	HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
-	if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
-		ResetDeviceD3D();
+	ImGui::End(); // End main window
+	ImGui::Render();
+	const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+	g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
+	g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+	HRESULT hr = g_pSwapChain->Present(1, 0);   // Present with vsync
+	g_SwapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
 }
 
 void DrawHotkeyTable()
@@ -536,7 +694,9 @@ void DrawHotkeyTable()
 		ImGui::PushID(i);
 		if (ImGui::Button("Set Hotkey") == true || ImGui::IsItemFocused() && UserPressedReturn) {
 			if (UserPressedReturn == true)
+			{
 				UserPressedReturn = false;
+			}
 			CaptureKeys = true;
 			CapturedKeyIndex = i;
 			ShowKeyCaptureWindow = true;
@@ -544,36 +704,66 @@ void DrawHotkeyTable()
 		ImGui::PopID();
 
 		ImGui::SameLine();
-		ImGui::Text("%s", Hotkeys[i].modText);
+		ImGui::Text(Hotkeys[i].modText.string);
 		ImGui::SameLine();
-		ImGui::Text("%s", Hotkeys[i].keyText);
+		ImGui::Text(Hotkeys[i].keyTextUTF8.string);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
 		if (ImGui::Button("Select file") == true || (ImGui::IsItemFocused() && UserPressedReturn))
 		{
 			if (UserPressedReturn == true)
-				UserPressedReturn = false;
-			UnloadSound(i);
-			const char* const filterPatterns[] = { "*.wav", "*.mp3", "*.ogg", "*.flac" };
-			const char* AudioFilePath = tinyfd_openFileDialog("Choose a file", NULL, 4, filterPatterns, NULL, 0);
-			if (AudioFilePath != NULL)
 			{
-				strcpy(Hotkeys[i].filePath, AudioFilePath);
-				GetFileNameFromPath(Hotkeys[i].fileName, AudioFilePath);
+				UserPressedReturn = false;
 			}
+			UnloadSound(i);
+			StringUTF16 fileNamebuffer = { 0 };
+			fileNamebuffer.numWideChars = MAX_PATH;
+			StringUTF16 fullPathbuffer = { 0 };
+			fullPathbuffer.numWideChars = MAX_PATH;
+			wchar_t* filePart = NULL;
+			OPENFILENAMEW ofn = { 0 };
+			ofn.lStructSize = sizeof(ofn);
+			ofn.hwndOwner = NULL;
+			ofn.lpstrFile = fileNamebuffer.string;
+			ofn.nMaxFile = fileNamebuffer.numWideChars;
+			ofn.lpstrFilter = L"Audio (.wav, .mp3, .ogg, .flac)\0*.wav;*.mp3;*.ogg;*.flac\0";
+			ofn.nFilterIndex = 1;
+			ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+			if (GetOpenFileNameW(&ofn)) 
+			{
+				wmemcpy(Hotkeys[i].filePath.string, fileNamebuffer.string, Hotkeys[i].filePath.numWideChars);
+				DWORD retVal = 0;
+				retVal = GetFullPathNameW(fileNamebuffer.string, fullPathbuffer.numWideChars, fullPathbuffer.string, &filePart);
+				if (retVal == 0)
+				{
+					PrintToLogWin32Error();
+				}
+				// Zero fileNameBuffer so we can reuse it to store just the file name part of the path
+				wmemset(fileNamebuffer.string, L'\0', fileNamebuffer.numWideChars);
+				wcscpy(fileNamebuffer.string, filePart);
+				EncodeUTF8(&fileNamebuffer, &Hotkeys[i].fileNameUTF8);
+			}
+			else 
+			{
+				PrintToLogWin32Error();
+			}
+
 		}
 		ImGui::PopID();
 		ImGui::SameLine();
-		ImGui::Text(Hotkeys[i].fileName);
+		ImGui::Text(Hotkeys[i].fileNameUTF8.string);
 		ImGui::TableNextColumn();
 		ImGui::PushID(i);
 		if (ImGui::Button("Reset") == true || ImGui::IsItemFocused() && UserPressedReturn)
 		{
 			if (UserPressedReturn == true)
+			{
 				UserPressedReturn = false;
+			}
 
-			Hotkeys[i].fileName[0] = '\0';
-			Hotkeys[i].filePath[0] = '\0';
+			wmemset(Hotkeys[i].filePath.string, L'\0', Hotkeys[i].filePath.numWideChars);
+			memset(Hotkeys[i].fileNameUTF8.string, '\0', Hotkeys[i].fileNameUTF8.numChars);
 			UnloadSound(i);
 		}
 		ImGui::PopID();
@@ -583,13 +773,13 @@ void DrawHotkeyTable()
 
 void DrawKeyCaptureWindow()
 {
-	CenterNextWindow();
+	CenterNextWindow(500.0f, 500.0f);
 	ImGui::Begin("Set Hotkey", &ShowKeyCaptureWindow, ImGuiWindowFlags_NoNav);
 	ImGui::Text("SHIFT, CTRL, ALT combos are supported");
 	ImGui::NewLine();
 	ImGui::Text("Press a key . . .");
-	ImGui::Text("%s", CapturedKeyModText);
-	ImGui::Text("%s", CapturedKeyText);
+	ImGui::Text("%s", CapturedKeyModText.string);
+	ImGui::Text("%s", CapturedKeyTextUTF8.string);
 	ImGui::NewLine();
 	ImGui::Text("%s", "ENTER to set");
 	ImGui::Text("%s", "BACKSPCE to clear");
@@ -610,8 +800,9 @@ void DrawKeyCaptureWindow()
 		{
 			Hotkeys[CapturedKeyIndex].keyCode = 0;
 			Hotkeys[CapturedKeyIndex].keyMod = 0;
-			Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
-			Hotkeys[CapturedKeyIndex].modText[0] = '\0';
+			wmemset(Hotkeys[CapturedKeyIndex].keyText.string, L'\0', Hotkeys[CapturedKeyIndex].keyText.numWideChars);
+			memset(Hotkeys[CapturedKeyIndex].modText.string, '\0', Hotkeys[CapturedKeyIndex].modText.numChars);
+			memset(Hotkeys[CapturedKeyIndex].keyTextUTF8.string, '\0', Hotkeys[CapturedKeyIndex].keyTextUTF8.numChars);
 		}
 
 		else
@@ -632,9 +823,10 @@ void DrawKeyCaptureWindow()
 
 			if (CapturedKeyInUse == false)
 			{
-				strcpy(Hotkeys[CapturedKeyIndex].keyText, (const char*)CapturedKeyText);
+				wmemcpy(Hotkeys[CapturedKeyIndex].keyText.string, CapturedKeyText.string, CapturedKeyText.numWideChars);
+				memcpy(Hotkeys[CapturedKeyIndex].keyTextUTF8.string, CapturedKeyTextUTF8.string, CapturedKeyTextUTF8.numChars);
 				Hotkeys[CapturedKeyIndex].keyCode = CapturedKeyCode;
-				strcpy(Hotkeys[CapturedKeyIndex].modText, CapturedKeyModText);
+				memcpy(Hotkeys[CapturedKeyIndex].modText.string, CapturedKeyModText.string, CapturedKeyModText.numChars);
 				Hotkeys[CapturedKeyIndex].keyMod = CapturedKeyMod;
 			}
 		}
@@ -647,12 +839,16 @@ void DrawKeyCaptureWindow()
 	ImGui::NewLine();
 	if (ImGui::Button("Clear") == true || UserPressedBackspace) {
 		if (UserPressedBackspace == true)
+		{
 			UserPressedBackspace = false;
+		}
 
-		Hotkeys[CapturedKeyIndex].keyText[0] = '\0';
 		Hotkeys[CapturedKeyIndex].keyCode = 0;
 		Hotkeys[CapturedKeyIndex].keyMod = 0;
-		Hotkeys[CapturedKeyIndex].modText[0] = '\0';
+
+		wmemset(Hotkeys[CapturedKeyIndex].keyText.string, L'\0', Hotkeys[CapturedKeyIndex].keyText.numWideChars);
+		memset(Hotkeys[CapturedKeyIndex].modText.string, '\0', Hotkeys[CapturedKeyIndex].modText.numChars);
+		memset(Hotkeys[CapturedKeyIndex].keyTextUTF8.string, '\0', Hotkeys[CapturedKeyIndex].keyTextUTF8.numChars);
 		ClearCapturedKey();
 	}
 	ImGui::End();
@@ -660,34 +856,27 @@ void DrawKeyCaptureWindow()
 
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-	MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
-	MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
-
-	MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+	memcpy((pOutput), (pInput), (frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels)));
 }
 
-char* GetFileNameFromPath(char* const aoDestination, char const* const aSource) {
-	/* copy the last name after '/' or '\' */
-	char const* lTmp;
-	if (aSource) {
-		lTmp = strrchr(aSource, '/');
-		if (!lTmp) {
-			lTmp = strrchr(aSource, '\\');
-		}
-		if (lTmp) {
-			strcpy(aoDestination, lTmp + 1);
-		}
-		else {
-			strcpy(aoDestination, aSource);
-		}
+void EncodeUTF8(StringUTF16* wideStr, StringUTF8* str)
+{
+	wideStr->string[wideStr->numWideChars - 1] = L'\0';
+	int numBytesRequired = 0;
+	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr->string, -1, NULL, 0, NULL, NULL);
+	if (str->numChars < numBytesRequired)
+	{
+		PrintToErrorLogAndExit(L"EncodeUTF8() the first call to WideCharToMultiByte found the buffer size required was larger than the given number of chars in the UTF8-string (variable str)");
+		// This error is considered unrecoverable and I want it to be very visible
 	}
-	else {
-		*aoDestination = '\0';
+	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr->string, -1, str->string, numBytesRequired, NULL, NULL);
+	if (numBytesRequired == 0)
+	{
+		PrintToLogWin32Error();
 	}
-	return aoDestination;
 }
 
-int InitAudioSystem()
+void InitAudioSystem()
 {
 	ma_resource_manager_config resourceManagerConfig;
 	resourceManagerConfig = ma_resource_manager_config_init();
@@ -698,28 +887,40 @@ int InitAudioSystem()
 	ma_result result;
 	result = ma_resource_manager_init(&resourceManagerConfig, &ResourceManager);
 	if (result != MA_SUCCESS)
-		return -1;
+	{
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio resource manager. Cannot continue.");
+	}
 
 	result = ma_context_init(NULL, 0, NULL, &Context);
 	if (result != MA_SUCCESS)
-		return -2;
+	{
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio context. Cannot continue.");
+	}
 
-	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount,
-		&pCaptureDeviceInfos, &CaptureDeviceCount);
+	result = ma_context_get_devices(&Context, &pPlaybackDeviceInfos, &PlaybackDeviceCount, &pCaptureDeviceInfos, &CaptureDeviceCount);
 	if (result != MA_SUCCESS)
 	{
-		ma_context_uninit(&Context);
-		return -3;
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio context. Cannot continue.");
 	}
 
 	PlaybackDeviceSelected = (bool*)malloc(sizeof(bool) * PlaybackDeviceCount);
-	for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
-		PlaybackDeviceSelected[i] = false;
+	if (PlaybackDeviceSelected != NULL)
+	{
+		for (ma_uint32 i = 0; i < PlaybackDeviceCount; i++)
+		{
+			PlaybackDeviceSelected[i] = false;
+		}
+	}
 	CaptureDeviceSelected = (bool*)malloc(sizeof(bool) * CaptureDeviceCount);
-	for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
-		CaptureDeviceSelected[i] = false;
+	if (CaptureDeviceSelected != NULL)
+	{
+		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
+		{
+			CaptureDeviceSelected[i] = false;
+		}
+	}
 
-	return 0;
+	return;
 }
 
 void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_device* duplexDevice, char* duplexDeviceName)
@@ -738,9 +939,11 @@ void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_devi
 	deviceConfig.dataCallback = DuplexDeviceCallback;
 	deviceConfig.pUserData = &CaptureEngine.engine;
 
-	if (ma_device_init(&Context, &deviceConfig, &CaptureEngine.device) != MA_SUCCESS)
+	ma_result result;
+	result = ma_device_init(&Context, &deviceConfig, &CaptureEngine.device);
+	if (result != MA_SUCCESS)
 	{
-		// Handle error
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio capture device. Cannot continue.");
 	}
 
 	engineConfig = ma_engine_config_init();
@@ -748,15 +951,16 @@ void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_devi
 	engineConfig.pResourceManager = &ResourceManager;
 	engineConfig.noAutoStart = MA_TRUE;
 
-	if (ma_engine_init(&engineConfig, &CaptureEngine.engine) != MA_SUCCESS)
+	result = ma_engine_init(&engineConfig, &CaptureEngine.engine);
+	if (result != MA_SUCCESS)
 	{
-		ma_device_uninit(&CaptureEngine.device);
-		// Handle error
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio capture device engine. Cannot continue.");
 	}
 
-	if (ma_engine_start(&CaptureEngine.engine) != MA_SUCCESS)
+	result = ma_engine_start(&CaptureEngine.engine);
+	if (result != MA_SUCCESS)
 	{
-		// Handle error failed to start engine
+		PrintToErrorLogAndExit(L"Failed to start miniaudio capture device engine. Cannot continue.");
 	}
 
 	strcpy(CaptureEngine.captureDeviceName, captureDeviceName);
@@ -777,8 +981,9 @@ void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName)
 	deviceConfig.pUserData = &PlaybackEngines[iEngine].engine;
 
 	ma_result result = ma_device_init(&Context, &deviceConfig, &PlaybackEngines[iEngine].device);
-	if (result != MA_SUCCESS) {
-		// Handle error
+	if (result != MA_SUCCESS) 
+	{
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio playback device. Cannot continue.");
 	}
 
 	engineConfig = ma_engine_config_init();
@@ -787,14 +992,15 @@ void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName)
 	engineConfig.noAutoStart = MA_TRUE;
 
 	result = ma_engine_init(&engineConfig, &PlaybackEngines[iEngine].engine);
-	if (result != MA_SUCCESS) {
-		// Handle error
-		ma_device_uninit(&PlaybackEngines[iEngine].device);
+	if (result != MA_SUCCESS) 
+	{
+		PrintToErrorLogAndExit(L"Failed to initialize miniaudio playback device engine. Cannot continue.");
 	}
 
 	result = ma_engine_start(&PlaybackEngines[iEngine].engine);
-	if (result != MA_SUCCESS) {
-		// Handle error
+	if (result != MA_SUCCESS) 
+	{
+		PrintToErrorLogAndExit(L"Failed to start miniaudio playback device engine. Cannot continue.");
 	}
 
 	strcpy(PlaybackEngines[iEngine].deviceName, deviceName);
@@ -807,30 +1013,30 @@ void InitSQLite() {
 	char* zErrMsg = 0;
 	int rc;
 	const char* sql_statement =
-		"CREATE TABLE IF NOT EXISTS HOTKEYS (KEY_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, FILE_PATH TEXT, FILE_NAME TEXT);";
+		"CREATE TABLE IF NOT EXISTS HOTKEYS (KEY_INDEX INTEGER PRIMARY KEY, KEY_MOD INTEGER, KEY INTEGER, MOD_TEXT TEXT, KEY_TEXT TEXT, KEY_TEXT_UTF8 TEXT, FILE_PATH TEXT, FILE_NAME_UTF8 TEXT);";
 	sqlite3_stmt* prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database to create hotkeys table");
+		PrintToErrorLog(L"SQL Error: Can't open database to create hotkeys table");
 		sqlite3_close(db);
 	}
 
 	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
 	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
 	rc = sqlite3_step(prepared_statement);
 	if (rc != SQLITE_DONE) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
 	rc = sqlite3_finalize(prepared_statement);
 	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
@@ -842,164 +1048,290 @@ void InitSQLite() {
 	sql_statement =
 		"CREATE TABLE IF NOT EXISTS DEVICES (DEVICE_INDEX INTEGER PRIMARY KEY, NAME TEXT);";
 	prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database to create playback devices table");
+		PrintToErrorLog(L"SQL Error: Can't open database to create playback devices table");
 		sqlite3_close(db);
 	}
 
 	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
 	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
 	rc = sqlite3_step(prepared_statement);
 	if (rc != SQLITE_DONE) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
 	rc = sqlite3_finalize(prepared_statement);
 	if (rc != SQLITE_OK) {
-		PrintToLog("log-error.txt", sqlite3_errmsg(db));
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	//---------- Create configuration table ----------
+	zErrMsg = 0;
+	rc = 0;
+	sql_statement =
+		"CREATE TABLE IF NOT EXISTS CONFIG (CONFIG_INDEX INTEGER PRIMARY KEY, VOLUME INTEGER);";
+	prepared_statement = NULL;
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
+
+	if (rc) {
+		PrintToErrorLog(L"SQL Error: Can't open database to create config table");
+		sqlite3_close(db);
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 		sqlite3_free(zErrMsg);
 	}
 
 	sqlite3_close(db);
 }
 
+void InterpretAudioErrorMessage(ma_result result, StringUTF8* errorMessage)
+{
+	switch (result)
+	{
+	case MA_DOES_NOT_EXIST:
+		strcpy(errorMessage->string, "The selected file does not exist at the last known file path.");
+		break;
+	case MA_INVALID_ARGS:
+		strcpy(errorMessage->string, "The call to PlayAudio() had invalid arguments. Check the file.");
+		break;
+	default:
+		strcpy(errorMessage->string, "The call to PlayAudio() failed for a reason not specified.");
+		break;
+	}
+	return;
+}
+
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam) 
 {
-	// If this code is less than zero, we must pass the message to the next hook
-	if (nCode >= 0)
+	// If nCode is less than zero, we must pass the message to the next hook
+	if (nCode >= 0 && CaptureKeys == false)
 	{
-		// Else we are checking for hotkey matches
-		if (CaptureKeys == false)
+		switch (wParam) 
 		{
-			switch (wParam) 
-			{
-			case WM_SYSKEYUP:
-			case WM_KEYUP:
-			{
-				PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
-				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
-				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
-				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
+		case WM_SYSKEYUP:
+		case WM_KEYUP:
+		{
+			PKBDLLHOOKSTRUCT p = (PKBDLLHOOKSTRUCT)lParam;
+			bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
+			bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
+			bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
 
-				if (p->vkCode == VK_PAUSE) 
+			if (p->vkCode == VK_PAUSE) 
+			{
+				for (int i = 0; i < NUM_SOUNDS; i++)
 				{
-					for (int i = 0; i < NUM_SOUNDS; i++)
-					{
-						UnloadSound(i);
-					}
-					break;
+					UnloadSound(i);
 				}
-
-				bool hotkeyFound = false;
-				for (size_t i = 0; i < NUM_SOUNDS; i++) {
-					if (Hotkeys[i].keyCode != NULL) {
-						if (Hotkeys[i].keyMod != NULL) {
-							if (p->vkCode == Hotkeys[i].keyCode) {
-								if (shiftDown) {
-									if (Hotkeys[i].keyMod == VK_SHIFT)
-										hotkeyFound = true;
-								}
-								else if (ctrlDown) {
-									if (Hotkeys[i].keyMod == VK_CONTROL)
-										hotkeyFound = true;
-								}
-								else if (altDown) {
-									if (Hotkeys[i].keyMod == VK_MENU)
-										hotkeyFound = true;
-								}
-							}
-						}
-						// Else if there is no modifier
-						else if ((p->vkCode == Hotkeys[i].keyCode) &&
-							altDown == false && ctrlDown == false && shiftDown == false) {
-							hotkeyFound = true;
-						}
-
-						if (hotkeyFound == true) {
-							for (int j = 0; j < MAX_PLAYBACK_DEVICES; j++)
-							{
-								if (PlaybackEngines[j].active == true)
-								{
-									PlayAudio(j, i, Hotkeys[i].filePath);
-								}
-							}
-							break; // Break out of the "sound search" for loop
-						}
-					}
-				}
-			} // End WM_KEYUP
-			default:
 				break;
-			} // End wParam switch (message)
-		}
-	}
+			}
 
+			bool hotkeyFound = false;
+			for (uint32_t i = 0; i < NUM_SOUNDS; i++) {
+				if (Hotkeys[i].keyCode != NULL) {
+					if (Hotkeys[i].keyMod != NULL) {
+						if (p->vkCode == Hotkeys[i].keyCode) {
+							if (shiftDown) {
+								if (Hotkeys[i].keyMod == VK_SHIFT)
+									hotkeyFound = true;
+							}
+							else if (ctrlDown) {
+								if (Hotkeys[i].keyMod == VK_CONTROL)
+									hotkeyFound = true;
+							}
+							else if (altDown) {
+								if (Hotkeys[i].keyMod == VK_MENU)
+									hotkeyFound = true;
+							}
+						}
+					}
+					// Else if there is no modifier
+					else if ((p->vkCode == Hotkeys[i].keyCode) &&
+						altDown == false &&
+						ctrlDown == false &&
+						shiftDown == false) 
+					{
+						hotkeyFound = true;
+					}
+
+					if (hotkeyFound == true) 
+					{
+						if (NumActivePlaybackDevices == 0)
+						{
+							snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "No playback device selected.");
+							DisplayAudioErrorMessage = true;
+							break;
+						}
+
+						for (uint32_t j = 0; j < MAX_PLAYBACK_DEVICES; j++)
+						{
+							if (PlaybackEngines[j].active == true)
+							{
+								ma_result result = PlayAudio(j, i, Hotkeys[i].filePath.string);
+								if (result != MA_SUCCESS)
+								{
+									if (Hotkeys[i].filePath.string[0] == NULL)
+									{
+										snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "No file selected for hotkey %d", i+1);
+										DisplayAudioErrorMessage = true;
+									}
+									else
+									{
+										InterpretAudioErrorMessage(result, &ErrorMsgBuffer);
+										DisplayAudioErrorMessage = true;
+									}
+									break;
+								}
+							}
+
+
+						}
+						break; // Break out of the "sound search" loop
+					}
+				}
+			}
+		} // End WM_KEYUP
+		default:
+			break;
+		} // End wParam switch (message)
+	}
 	return CallNextHookEx(0, nCode, wParam, lParam);
 }
 
-void LoadDevicesFromDatabase() {
+void LoadConfigFromDatabase()
+{
 	char* errorMessage = NULL;
-	int rc = sqlite3_open("hotkeys.db", &db);
+	int rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
+
+	if (rc)
+	{
+		PrintToErrorLog(L"SQL Error: Can't open database for loading config");
+		return;
+	}
+
+	sqlite3_stmt* stmt;
+	const char* sql = "SELECT * FROM CONFIG";
+	int rowCounter = 0;
+	rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+	if (rc != SQLITE_OK)
+	{
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		goto cleanup;
+	}
+
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+	{
+		if (rowCounter < 1)
+		{
+			VolumeDisplay = sqlite3_column_int(stmt, 1);
+			rowCounter++;
+		}
+	}
+
+	if (rc != SQLITE_DONE)
+	{
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+	}
+
+cleanup:
+	sqlite3_finalize(stmt);
+	sqlite3_close(db);
+	sqlite3_free(errorMessage);
+}
+
+void LoadDevicesFromDatabase() 
+{
+	char* errorMessage = NULL;
+	int rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
 
 	if (rc) 
 	{
-		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading devices");
+		PrintToErrorLog(L"SQL Error: Can't open database for loading devices");
+		return;
 	}
 
-	else 
+	sqlite3_stmt* stmt;
+	int rowCounter = 0;
+	const char* sql = "SELECT * FROM DEVICES";
+	rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+	if (rc != SQLITE_OK) 
 	{
-		sqlite3_stmt* stmt;
-		const char* sql = "SELECT * FROM DEVICES";
-		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-		if (rc != SQLITE_OK) 
-		{
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
-			sqlite3_free(errorMessage);
-			return;
-		}
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		goto cleanup;
+	}
 
-		int rowCounter = 0;
-		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (rowCounter < MAX_PLAYBACK_DEVICES) 
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+	{
+		if (rowCounter < 4)
+		{
+			if (rowCounter == 0)
 			{
-				strcpy(LastPlaybackDeviceNames[rowCounter], (const char*)sqlite3_column_text(stmt, 1));
-				rowCounter++;
+				SQLiteCopyColumnText(stmt, rowCounter, 1, L"DeviceName", &SavedPlaybackDeviceName1);
+			}
+			else if (rowCounter == 1)
+			{
+				SQLiteCopyColumnText(stmt, rowCounter, 1, L"DeviceName", &SavedPlaybackDeviceName2);
 			}
 			else if (rowCounter == 2)
 			{
-				strcpy(LastCaptureDeviceName, (const char*)sqlite3_column_text(stmt, 1));
-				rowCounter++;
+				SQLiteCopyColumnText(stmt, rowCounter, 1, L"DeviceName", &SavedCaptureDeviceName);
 			}
 			else if (rowCounter == 3)
 			{
-				strcpy(LastDuplexDeviceName, (const char*)sqlite3_column_text(stmt, 1));
-				rowCounter++;
+				SQLiteCopyColumnText(stmt, rowCounter, 1, L"DeviceName", &SavedDuplexDeviceName);
 			}
+			rowCounter++;
 		}
-
-		if (rc != SQLITE_DONE) 
-		{
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
-			sqlite3_free(errorMessage);
-		}
-		sqlite3_finalize(stmt);
-
 	}
+
+	if (rc != SQLITE_DONE)
+	{
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+	}
+
+cleanup:
+	sqlite3_finalize(stmt);
 	sqlite3_close(db);
+	sqlite3_free(errorMessage);
 	
 	DuplexDeviceIndex = -1;
 	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
 	{
+		const char* currentDevice = NULL;
+		if (i == 0)
+		{
+			currentDevice = SavedPlaybackDeviceName1.string;
+		}
+		else if (i == 1)
+		{
+			currentDevice = SavedPlaybackDeviceName2.string;
+		}
+
 		for (ma_uint32 j = 0; j < PlaybackDeviceCount; j++)
 		{
-			if (strcmp(pPlaybackDeviceInfos[j].name, LastPlaybackDeviceNames[i]) == 0)
+			if (strcmp(pPlaybackDeviceInfos[j].name, currentDevice) == 0)
 			{
 				PlaybackDeviceSelected[j] = true;
 				InitPlaybackDevice(&pPlaybackDeviceInfos[j].id, i, pPlaybackDeviceInfos[j].name);
@@ -1007,7 +1339,7 @@ void LoadDevicesFromDatabase() {
 			}
 		}
 
-		if (strcmp(PlaybackEngines[i].deviceName, LastDuplexDeviceName) == 0)
+		if (strcmp(PlaybackEngines[i].deviceName, SavedDuplexDeviceName.string) == 0)
 		{
 			DuplexDeviceIndex = i;
 		}
@@ -1017,7 +1349,7 @@ void LoadDevicesFromDatabase() {
 	{
 		for (ma_uint32 i = 0; i < CaptureDeviceCount; i++)
 		{
-			if (strcmp(pCaptureDeviceInfos[i].name, LastCaptureDeviceName) == 0)
+			if (strcmp(pCaptureDeviceInfos[i].name, SavedCaptureDeviceName.string) == 0)
 			{
 				CaptureDeviceSelected[i] = true;
 				InitCaptureDevice(&pCaptureDeviceInfos[i].id, pCaptureDeviceInfos[i].name,
@@ -1030,98 +1362,125 @@ void LoadDevicesFromDatabase() {
 
 void LoadHotkeysFromDatabase() {
 	char* errorMessage = NULL;
-	int rc = sqlite3_open("hotkeys.db", &db);
+	int rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
 
 	if (rc) 
 	{
-		PrintToLog("log-error.txt", "SQL Error: Can't open database for loading hotkeys");
+		PrintToErrorLog(L"SQL Error: Can't open database for loading hotkeys");
+		return;
 	}
 
-	else 
+	sqlite3_stmt* stmt;
+	int rowCounter = 0;
+	const char* sql = "SELECT * FROM HOTKEYS";
+	rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+	if (rc != SQLITE_OK) 
 	{
-		sqlite3_stmt* stmt;
-		const char* sql = "SELECT * FROM HOTKEYS";
-		int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-		if (rc != SQLITE_OK) 
-		{
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
-			sqlite3_free(errorMessage);
-			return;
-		}
-
-		int rowCounter = 0;
-		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (rowCounter < MAX_SOUNDS) 
-			{
-				Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
-				Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
-				strcpy(Hotkeys[rowCounter].modText, (const char*)sqlite3_column_text(stmt, 3));
-				strcpy(Hotkeys[rowCounter].keyText, (const char*)sqlite3_column_text(stmt, 4));
-				strcpy(Hotkeys[rowCounter].filePath, (const char*)sqlite3_column_text(stmt, 5));
-				strcpy(Hotkeys[rowCounter].fileName, (const char*)sqlite3_column_text(stmt, 6));
-				rowCounter++;
-			}
-		}
-
-		if (rc != SQLITE_DONE) 
-		{
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
-			sqlite3_free(errorMessage);
-		}
-		sqlite3_finalize(stmt);
-
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		goto cleanup;
 	}
+
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) 
+	{
+		if (rowCounter < MAX_SOUNDS) 
+		{
+			Hotkeys[rowCounter].keyMod = sqlite3_column_int(stmt, 1);
+			Hotkeys[rowCounter].keyCode = sqlite3_column_int(stmt, 2);
+			SQLiteCopyColumnText(stmt, rowCounter, 3, L"modText", &Hotkeys[rowCounter].modText);
+			SQLiteCopyColumnText16(stmt, rowCounter, 4, L"keyText", &Hotkeys[rowCounter].keyText);
+			SQLiteCopyColumnText(stmt, rowCounter, 5, L"keyTextUTF8", &Hotkeys[rowCounter].keyTextUTF8);
+			SQLiteCopyColumnText16(stmt, rowCounter, 6, L"filePath", &Hotkeys[rowCounter].filePath);
+			SQLiteCopyColumnText(stmt, rowCounter, 7, L"fileNameUTF8", &Hotkeys[rowCounter].fileNameUTF8);
+			rowCounter++;
+		}
+	}
+
+	if (rc != SQLITE_DONE) 
+	{
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+	}
+
+cleanup:
+	sqlite3_finalize(stmt);
 	sqlite3_close(db);
+	sqlite3_free(errorMessage);
 }
 
-void PlayAudio(int iEngine, int iSound, const char* filePath)
+ma_result PlayAudio(uint32_t iEngine, uint32_t iSound, const wchar_t* filePath)
 {
+	ma_result result = MA_SUCCESS;
 	if (SoundLoaded[iEngine][iSound] == false)
 	{
 		ma_uint32 flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE |
 			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC |
 			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
 
-		ma_result result = ma_sound_init_from_file(&PlaybackEngines[iEngine].engine,
+		result = ma_sound_init_from_file_w(&PlaybackEngines[iEngine].engine,
 			filePath, flags, NULL, NULL, &PlaybackEngines[iEngine].sounds[iSound]);
 
-		if (result == MA_SUCCESS)
+		if (result != MA_SUCCESS)
 		{
-			SoundLoaded[iEngine][iSound] = true;
+			return result;
 		}
-		else
-		{
-			// Handle error
-		}
+
+		SoundLoaded[iEngine][iSound] = true;
 	}
 
-	ma_data_source_seek_to_pcm_frame(PlaybackEngines[iEngine].sounds[iSound].pDataSource, 0);
+	//result = ma_data_source_seek_to_pcm_frame(PlaybackEngines[iEngine].sounds[iSound].pDataSource, 0);
+	//if (result != MA_SUCCESS)
+	//{
+	//	return result;
+	//}
 
-	if (ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]) != MA_SUCCESS)
-	{
-		// Handle error failed to start sound
-	}
+	result = ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]);
+	return result;
 }
 
-void PrintToLog(const char* fileName, const char* logText) {
-	SYSTEMTIME Time = {};
-	GetLocalTime(&Time);
+void PrintToErrorLog(const wchar_t* logText) 
+{
+	wchar_t timeString[32] = { 0 };
+	struct tm newtime;
+	__time32_t aclock;
+	errno_t retVal;
+	_time32(&aclock);
+	_localtime32_s(&newtime, &aclock);
+
+	retVal = _wasctime_s(timeString, sizeof(timeString) / sizeof(wchar_t), &newtime);
+	if (retVal)
+	{
+		wcscpy(timeString, L"ERROR: _wasctime_s failed");
+	}
+
 	FILE* file = 0;
-	if (file = fopen(fileName, "a")) {
-		fprintf(file, "%u%s%u%s%u%s%u%s%u%s%u%s%s",
-			Time.wYear, "-", Time.wMonth, "-", Time.wDay, " ", Time.wHour, ":", Time.wMinute, ":", Time.wSecond, " ", logText);
-		fprintf(file, "\n");
+	if (file = _wfopen(PathToErrorLog.string, L"a")) 
+	{
+		fwprintf(file, L"%s%s%s", timeString, L" ", logText);
+		fwprintf(file, L"\n");
 		fclose(file);
 	}
 }
 
-void ResetDeviceD3D()
+void PrintToErrorLogAndExit(const wchar_t* logText)
 {
-	ImGui_ImplDX9_InvalidateDeviceObjects();
-	HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
-	if (hr == D3DERR_INVALIDCALL)
-		IM_ASSERT(0);
-	ImGui_ImplDX9_CreateDeviceObjects();
+	PrintToErrorLog(logText);
+	exit(1);
+}
+
+void PrintToLogWin32Error()
+{
+	DWORD dLastError = GetLastError();
+	LPCTSTR strErrorMessage = NULL;
+
+	FormatMessageW(
+		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_ARGUMENT_ARRAY | FORMAT_MESSAGE_ALLOCATE_BUFFER,
+		NULL,
+		dLastError,
+		0,
+		(LPWSTR)&strErrorMessage,
+		0,
+		NULL);
+
+	PrintToErrorLog(strErrorMessage);
 }
 
 void ResetNavKeys() {
@@ -1130,71 +1489,120 @@ void ResetNavKeys() {
 	UserPressedBackspace = false;
 }
 
+void SaveConfigToDatabase()
+{
+	char* zErrMsg = 0;
+	int rc;
+	const char* sql_statement = "REPLACE INTO CONFIG(CONFIG_INDEX, VOLUME) VALUES (?, ?)";
+	sqlite3_stmt* prepared_statement = NULL;
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
+
+	if (rc) 
+	{
+		PrintToErrorLog(L"SQL Error: Can't open database");
+		return;
+	}
+
+	rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+	rc = sqlite3_bind_int(prepared_statement, 1, 1);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+	rc = sqlite3_bind_int(prepared_statement, 2, VolumeDisplay);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+	rc = sqlite3_step(prepared_statement);
+	if (rc != SQLITE_DONE) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+	rc = sqlite3_finalize(prepared_statement);
+	if (rc != SQLITE_OK) {
+		PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+		sqlite3_free(zErrMsg);
+	}
+	sqlite3_close(db);
+}
+
 void SaveHotkeysToDatabase() 
 {
 	char* zErrMsg = 0;
 	int rc;
-	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, FILE_PATH, FILE_NAME) VALUES (?, ?, ?, ?, ?, ?, ?)";
+	const char* sql_statement = "REPLACE INTO HOTKEYS(KEY_INDEX, KEY_MOD, KEY, MOD_TEXT, KEY_TEXT, KEY_TEXT_UTF8, FILE_PATH, FILE_NAME_UTF8) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
+
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
+		PrintToErrorLog(L"SQL Error: Can't open database");
 		sqlite3_close(db);
 	}
 
-	for (size_t i = 0; i < NUM_SOUNDS; i++) {
+	for (int i = 0; i < NUM_SOUNDS; i++) {
 		rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			const char* error = sqlite3_errmsg(db);
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 		
 		rc = sqlite3_bind_int(prepared_statement, 1, i);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 		rc = sqlite3_bind_int(prepared_statement, 2, Hotkeys[i].keyMod);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_int(prepared_statement, 3, Hotkeys[i].keyCode);
+		rc = sqlite3_bind_int64(prepared_statement, 3, Hotkeys[i].keyCode);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].modText, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 4, Hotkeys[i].modText.string, -1, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 5, Hotkeys[i].keyText, -1, NULL);
+		rc = sqlite3_bind_text16(prepared_statement, 5, Hotkeys[i].keyText.string, -1, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].filePath, -1, NULL);
+		rc = sqlite3_bind_text(prepared_statement, 6, Hotkeys[i].keyTextUTF8.string, -1, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
-		rc = sqlite3_bind_text(prepared_statement, 7, Hotkeys[i].fileName, -1, NULL);
+		rc = sqlite3_bind_text16(prepared_statement, 7, Hotkeys[i].filePath.string, -1, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
+			sqlite3_free(zErrMsg);
+		}
+		rc = sqlite3_bind_text(prepared_statement, 8, Hotkeys[i].fileNameUTF8.string, -1, NULL);
+		if (rc != SQLITE_OK) {
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 
 		rc = sqlite3_step(prepared_statement);
 		if (rc != SQLITE_DONE) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 
 		rc = sqlite3_finalize(prepared_statement);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 	}
@@ -1208,24 +1616,24 @@ void SaveDevicesToDatabase()
 	int rc;
 	const char* sql_statement = "REPLACE INTO DEVICES(DEVICE_INDEX, NAME) VALUES (?, ?)";
 	sqlite3_stmt* prepared_statement = NULL;
-	rc = sqlite3_open("hotkeys.db", &db);
+	rc = sqlite3_open(PathToDatabaseUTF8.string, &db);
 
 	if (rc) {
-		PrintToLog("log-error.txt", "SQL Error: Can't open database");
-		sqlite3_close(db);
+		PrintToErrorLog(L"SQL Error: Can't open database");
+		return;
 	}
 
 	for (int i = 0; i < 4; i++)
 	{
 		rc = sqlite3_prepare_v2(db, sql_statement, -1, &prepared_statement, NULL);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 
 		rc = sqlite3_bind_int(prepared_statement, 1, i);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 
@@ -1233,7 +1641,7 @@ void SaveDevicesToDatabase()
 		{
 			rc = sqlite3_bind_text(prepared_statement, 2, PlaybackEngines[i].deviceName, -1, NULL);
 			if (rc != SQLITE_OK) {
-				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 				sqlite3_free(zErrMsg);
 			}
 		}
@@ -1242,7 +1650,7 @@ void SaveDevicesToDatabase()
 		{
 			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.captureDeviceName, -1, NULL);
 			if (rc != SQLITE_OK) {
-				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 				sqlite3_free(zErrMsg);
 			}
 		}
@@ -1251,20 +1659,20 @@ void SaveDevicesToDatabase()
 		{
 			rc = sqlite3_bind_text(prepared_statement, 2, CaptureEngine.duplexDeviceName, -1, NULL);
 			if (rc != SQLITE_OK) {
-				PrintToLog("log-error.txt", sqlite3_errmsg(db));
+				PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 				sqlite3_free(zErrMsg);
 			}
 		}
 
 		rc = sqlite3_step(prepared_statement);
 		if (rc != SQLITE_DONE) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 
 		rc = sqlite3_finalize(prepared_statement);
 		if (rc != SQLITE_OK) {
-			PrintToLog("log-error.txt", sqlite3_errmsg(db));
+			PrintToErrorLog((const wchar_t*)sqlite3_errmsg16(db));
 			sqlite3_free(zErrMsg);
 		}
 	}
@@ -1274,7 +1682,7 @@ void SaveDevicesToDatabase()
 
 void SelectCaptureDevice()
 {
-	CenterNextWindow();
+	CenterNextWindow(500.0f, 500.0f);
 	ImGui::Begin("Select Recording Device (max 1)", &ShowCaptureDeviceList);
 	if (ShowDuplexDevices == false)
 	{
@@ -1328,11 +1736,11 @@ void SelectCaptureDevice()
 
 void SelectPlaybackDevice()
 {
-	CenterNextWindow();
+	CenterNextWindow(500.0f, 500.0f);
 	ImGui::Begin("Select Playback Device (max 2)", &ShowPlaybackDeviceList);
 	ImGui::Text("Select where you want to hear sound (up to 2 devices).\nThis is usually your speakers and a virtual cable input.");
 	ImGui::NewLine();
-	for (int i = 0; i < PlaybackDeviceCount; i += 1)
+	for (uint32_t i = 0; i < PlaybackDeviceCount; i += 1)
 	{
 		if (PlaybackDeviceSelected[i] == false)
 		{
@@ -1355,6 +1763,49 @@ void SelectPlaybackDevice()
 	ImGui::End();
 }
 
+void SetVolume()
+{
+	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
+	{
+		if (PlaybackEngines[i].active == true)
+		{
+			ma_engine_set_volume(&PlaybackEngines[i].engine, VolumeDisplay / 100.0f);
+		}
+	}
+}
+
+void SQLiteCopyColumnText(sqlite3_stmt* stmt, int iRow, int iColumn, const wchar_t* const columnName, StringUTF8* destination)
+{
+	const char* textPtr = (const char*)sqlite3_column_text(stmt, iColumn);
+	int bytesOfText = sqlite3_column_bytes(stmt, iColumn);
+	size_t bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
+	if ((sizeof(destination->string[0]) * destination->numChars) < bytesToWrite)
+	{
+		const size_t errMsgBufferSize = 1024;
+		wchar_t errMsgBuffer[errMsgBufferSize] = { 0 };
+		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d was less than the required size returned by the database", columnName, iRow);
+		PrintToErrorLogAndExit(errMsgBuffer);
+	}
+
+	memcpy(destination->string, textPtr, bytesToWrite);
+}
+
+void SQLiteCopyColumnText16(sqlite3_stmt* stmt, int iRow, int iColumn, const wchar_t* const columnName, StringUTF16* destination)
+{
+	const wchar_t* textPtr = (const wchar_t*)sqlite3_column_text16(stmt, iColumn);
+	int bytesOfText = sqlite3_column_bytes16(stmt, iColumn);
+	size_t bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
+	if ((sizeof(destination->string[0]) * destination->numWideChars) < bytesToWrite)
+	{
+		const size_t errMsgBufferSize = 1024;
+		wchar_t errMsgBuffer[errMsgBufferSize] = { 0 };
+		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d was less than the required size returned by the database", columnName, iRow);
+		PrintToErrorLogAndExit(errMsgBuffer);
+	}
+
+	wmemcpy(destination->string, textPtr, bytesToWrite);
+}
+
 void UnloadSound(int iSound)
 {
 	for (int i = 0; i < MAX_PLAYBACK_DEVICES; i++)
@@ -1366,3 +1817,4 @@ void UnloadSound(int iSound)
 		}
 	}
 }
+
