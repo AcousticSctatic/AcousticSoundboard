@@ -1,11 +1,42 @@
 #include "AcousticSoundboard.h"
-// TODO: Test long filenames
-// TODO: Test long filenames with Arabic
-// TODO: Clean up readme
+#include <cderr.h>
+#include <dxgi.h>
+#include <dxgiformat.h>
+#include <windef.h>
+#include <winerror.h>
+#include <corecrt.h>
+#include <cstring>
+#include <malloc.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <wchar.h>
+#include <combaseapi.h>
+#include <commdlg.h>
+#include <d3d11.h>
+#include <d3dcommon.h>
+#include <errhandlingapi.h>
+#include <fileapi.h>
+#include <libloaderapi.h>
+#include <minwinbase.h>
+#include <PathCch.h>
+#include <processenv.h>
+#include <stringapiset.h>
+#include <synchapi.h>
+#include <Windows.h>
+#include <WinNls.h>
+#include <cstdint>
+#include <sal.h>
+#include <imgui.h>
+#include <imgui_impl_dx11.h>
+#include <imgui_impl_win32.h>
+#include <miniaudio.h>
+#include <sqlite3.h>
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, _In_  LPSTR lpCmdLine, _In_  int nCmdShow)
 {
-	GetModuleFileNameW(NULL, StartingDirectory.string, MAX_PATH);
+	GetModuleFileNameW(NULL, StartingDirectory.string, StartingDirectory.numWideChars);
 	ImGui_ImplWin32_EnableDpiAwareness();
 	float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
 
@@ -354,6 +385,8 @@ void ClosePlaybackDevices()
 			ma_engine_uninit(&PlaybackEngines[i].engine);
 			ma_device_uninit(&PlaybackEngines[i].device);
 
+
+
 			for (int j = 0; j < NUM_SOUNDS; j++)
 			{
 				if (SoundLoaded[i][j] == true)
@@ -366,6 +399,7 @@ void ClosePlaybackDevices()
 			PlaybackEngines[i].deviceName[0] = '\0';
 		}
 	}
+
 
 	NumActivePlaybackDevices = 0;
 
@@ -629,15 +663,15 @@ void DrawGUI()
 		ImGui::End();
 	} // ----------END Key In Use Window ----------
 
-	// ---------- Audio Error Message Window ----------
-	if (DisplayAudioErrorMessage == true) 
+	// ---------- Error Message Window ----------
+	if (DisplayErrorMessageWindow == true) 
 	{
 		CenterNextWindow(300.0f, 300.0f);
-		ImGui::Begin("Audio Playback Error", &DisplayAudioErrorMessage, ImGuiWindowFlags_AlwaysAutoResize);
+		ImGui::Begin("Error", &DisplayErrorMessageWindow, ImGuiWindowFlags_AlwaysAutoResize);
 		ImGui::Text(ErrorMsgBuffer.string);
 		if (ImGui::Button(" OK ") == true || UserPressedEscape || UserPressedReturn)
 		{
-			DisplayAudioErrorMessage = false;
+			DisplayErrorMessageWindow = false;
 		}
 		ImGui::End();
 	} // ----------END Audio Error Message Window ----------
@@ -716,10 +750,8 @@ void DrawHotkeyTable()
 				UserPressedReturn = false;
 			}
 			UnloadSound(i);
-			StringUTF16 fileNamebuffer = { 0 };
-			fileNamebuffer.numWideChars = MAX_PATH;
-			StringUTF16 fullPathbuffer = { 0 };
-			fullPathbuffer.numWideChars = MAX_PATH;
+			StringUTF16 fileNamebuffer;
+			StringUTF16 fullPathbuffer;
 			wchar_t* filePart = NULL;
 			OPENFILENAMEW ofn = { 0 };
 			ofn.lStructSize = sizeof(ofn);
@@ -732,23 +764,33 @@ void DrawHotkeyTable()
 
 			if (GetOpenFileNameW(&ofn)) 
 			{
-				wmemcpy(Hotkeys[i].filePath.string, fileNamebuffer.string, Hotkeys[i].filePath.numWideChars);
-				DWORD retVal = 0;
-				retVal = GetFullPathNameW(fileNamebuffer.string, fullPathbuffer.numWideChars, fullPathbuffer.string, &filePart);
-				if (retVal == 0)
+				DWORD wideCharsRequired = GetFullPathNameW(fileNamebuffer.string, fullPathbuffer.numWideChars, fullPathbuffer.string, &filePart);
+				if (wideCharsRequired == 0)
 				{
 					PrintToLogWin32Error();
 				}
-				// Zero fileNameBuffer so we can reuse it to store just the file name part of the path
-				wmemset(fileNamebuffer.string, L'\0', fileNamebuffer.numWideChars);
-				wcscpy(fileNamebuffer.string, filePart);
-				EncodeUTF8(&fileNamebuffer, &Hotkeys[i].fileNameUTF8);
+				else
+				{
+					wmemcpy(Hotkeys[i].filePath.string, fileNamebuffer.string, Hotkeys[i].filePath.numWideChars);
+					// Zero fileNameBuffer so we can reuse it to store just the file name part of the path
+					wmemset(fileNamebuffer.string, L'\0', fileNamebuffer.numWideChars);
+					wcscpy(fileNamebuffer.string, filePart);
+					EncodeUTF8(&fileNamebuffer, &Hotkeys[i].fileNameUTF8);
+				}
 			}
 			else 
 			{
-				PrintToLogWin32Error();
+				DWORD dialogError = CommDlgExtendedError();
+				if (dialogError == FNERR_BUFFERTOOSMALL)
+				{
+					snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "The file path is too long. This application supports file paths up to %d characters. Shorten the path and try again.", APP_MAX_PATH);
+					DisplayErrorMessageWindow = true;
+				}
+				else
+				{
+					PrintToLogWin32Error();
+				}
 			}
-
 		}
 		ImGui::PopID();
 		ImGui::SameLine();
@@ -1107,18 +1149,18 @@ void InitSQLite() {
 	sqlite3_close(db);
 }
 
-void InterpretAudioErrorMessage(ma_result result, StringUTF8* errorMessage)
+void InterpretAudioErrorMessage(ma_result result, uint32_t hotKeyIndex)
 {
 	switch (result)
 	{
 	case MA_DOES_NOT_EXIST:
-		strcpy(errorMessage->string, "The selected file does not exist at the last known file path.");
+		snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "The selected file does not exist at the last known file path for hotkey %d", hotKeyIndex);
 		break;
 	case MA_INVALID_ARGS:
-		strcpy(errorMessage->string, "The call to PlayAudio() had invalid arguments. Check the file.");
+		snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "The call to PlayAudio() had invalid arguments. Check the file for hotkey %d", hotKeyIndex);
 		break;
 	default:
-		strcpy(errorMessage->string, "The call to PlayAudio() failed for a reason not specified.");
+		snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "The call to PlayAudio() failed for a reason not specified for hotkey %d", hotKeyIndex);
 		break;
 	}
 	return;
@@ -1149,21 +1191,33 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 			}
 
 			bool hotkeyFound = false;
-			for (uint32_t i = 0; i < NUM_SOUNDS; i++) {
-				if (Hotkeys[i].keyCode != NULL) {
-					if (Hotkeys[i].keyMod != NULL) {
-						if (p->vkCode == Hotkeys[i].keyCode) {
+			for (uint32_t i = 0; i < NUM_SOUNDS; i++) 
+			{
+				if (Hotkeys[i].keyCode != 0) 
+				{
+					if (Hotkeys[i].keyMod != 0) 
+					{
+						if (p->vkCode == Hotkeys[i].keyCode) 
+						{
 							if (shiftDown) {
 								if (Hotkeys[i].keyMod == VK_SHIFT)
+								{
 									hotkeyFound = true;
+								}
 							}
-							else if (ctrlDown) {
+							else if (ctrlDown) 
+							{
 								if (Hotkeys[i].keyMod == VK_CONTROL)
+								{
 									hotkeyFound = true;
+								}
 							}
-							else if (altDown) {
+							else if (altDown) 
+							{
 								if (Hotkeys[i].keyMod == VK_MENU)
+								{
 									hotkeyFound = true;
+								}
 							}
 						}
 					}
@@ -1181,7 +1235,7 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 						if (NumActivePlaybackDevices == 0)
 						{
 							snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "No playback device selected.");
-							DisplayAudioErrorMessage = true;
+							DisplayErrorMessageWindow = true;
 							break;
 						}
 
@@ -1194,19 +1248,17 @@ LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ L
 								{
 									if (Hotkeys[i].filePath.string[0] == NULL)
 									{
-										snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "No file selected for hotkey %d", i+1);
-										DisplayAudioErrorMessage = true;
+										snprintf(ErrorMsgBuffer.string, ErrorMsgBuffer.numChars, "No file selected for hotkey %d", i + 1);
 									}
 									else
 									{
-										InterpretAudioErrorMessage(result, &ErrorMsgBuffer);
-										DisplayAudioErrorMessage = true;
+										InterpretAudioErrorMessage(result, i + 1);
 									}
+
+									DisplayErrorMessageWindow = true;
 									break;
 								}
 							}
-
-
 						}
 						break; // Break out of the "sound search" loop
 					}
@@ -1426,12 +1478,6 @@ ma_result PlayAudio(uint32_t iEngine, uint32_t iSound, const wchar_t* filePath)
 		SoundLoaded[iEngine][iSound] = true;
 	}
 
-	//result = ma_data_source_seek_to_pcm_frame(PlaybackEngines[iEngine].sounds[iSound].pDataSource, 0);
-	//if (result != MA_SUCCESS)
-	//{
-	//	return result;
-	//}
-
 	result = ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]);
 	return result;
 }
@@ -1469,6 +1515,11 @@ void PrintToErrorLogAndExit(const wchar_t* logText)
 void PrintToLogWin32Error()
 {
 	DWORD dLastError = GetLastError();
+	if (dLastError == 0)
+	{
+		return; // "The operation completed successfully". No need to log.
+	}
+
 	LPCTSTR strErrorMessage = NULL;
 
 	FormatMessageW(
@@ -1778,12 +1829,13 @@ void SQLiteCopyColumnText(sqlite3_stmt* stmt, int iRow, int iColumn, const wchar
 {
 	const char* textPtr = (const char*)sqlite3_column_text(stmt, iColumn);
 	int bytesOfText = sqlite3_column_bytes(stmt, iColumn);
-	size_t bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
-	if ((sizeof(destination->string[0]) * destination->numChars) < bytesToWrite)
+	int bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
+	int bytesInDestination = sizeof(char) * destination->numChars;
+	if (bytesInDestination < bytesToWrite)
 	{
 		const size_t errMsgBufferSize = 1024;
 		wchar_t errMsgBuffer[errMsgBufferSize] = { 0 };
-		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d was less than the required size returned by the database", columnName, iRow);
+		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d (%d) was less than the required size returned by the database (%d)", columnName, iRow, bytesInDestination, bytesToWrite);
 		PrintToErrorLogAndExit(errMsgBuffer);
 	}
 
@@ -1794,16 +1846,16 @@ void SQLiteCopyColumnText16(sqlite3_stmt* stmt, int iRow, int iColumn, const wch
 {
 	const wchar_t* textPtr = (const wchar_t*)sqlite3_column_text16(stmt, iColumn);
 	int bytesOfText = sqlite3_column_bytes16(stmt, iColumn);
-	size_t bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
-	if ((sizeof(destination->string[0]) * destination->numWideChars) < bytesToWrite)
+	int bytesToWrite = bytesOfText + 1; // The count of bytes returned by SQLite does not include the zero terminator, so add 1
+	int bytesInDestination = sizeof(wchar_t) * destination->numWideChars;
+	if (bytesInDestination < bytesToWrite)
 	{
 		const size_t errMsgBufferSize = 1024;
 		wchar_t errMsgBuffer[errMsgBufferSize] = { 0 };
-		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d was less than the required size returned by the database", columnName, iRow);
+		_snwprintf(errMsgBuffer, errMsgBufferSize, L"The size for %s at row %d (%d) was less than the required size returned by the database (%d)", columnName, iRow, bytesInDestination, bytesToWrite);
 		PrintToErrorLogAndExit(errMsgBuffer);
 	}
-
-	wmemcpy(destination->string, textPtr, bytesToWrite);
+	memcpy(destination->string, textPtr, bytesToWrite);
 }
 
 void UnloadSound(int iSound)

@@ -7,16 +7,13 @@
 #pragma once
 #include <windows.h>
 #include <d3d11.h>
-#include <Pathcch.h>
-#include <stdio.h>
-#include <wchar.h>
-#include <stdint.h>
-#include <time.h>
 #include <sqlite3.h>
 #include <imgui.h>
-#include <imgui_impl_win32.h>
-#include <imgui_impl_dx11.h>
 #include <miniaudio.h>
+#include <dxgi.h>
+#include <windef.h>
+#include <cstdint>
+#include <sal.h>
 #pragma comment(lib,"Shlwapi.lib")
 #pragma comment(lib,"Pathcch.lib")
 #pragma comment(lib,"d3d11.lib")
@@ -24,16 +21,18 @@
 #pragma comment(lib,"dxgi.lib")
 #pragma comment(lib,"sqlite3.lib")
 #define MAX_PLAYBACK_DEVICES 2
+#define NUM_REPEAT_ENGINES 5
 #define MAX_SOUNDS 50
+#define APP_MAX_PATH 2048
 
 typedef struct StringUTF8 {
-	int numChars = MAX_PATH;
-	char string[MAX_PATH] = { 0 };
+	int numChars = APP_MAX_PATH;
+	char string[APP_MAX_PATH] = { 0 };
 } StringUTF8;
 
 typedef struct StringUTF16 {
-	int numWideChars = MAX_PATH;
-	wchar_t string[MAX_PATH] = { 0 };
+	int numWideChars = APP_MAX_PATH;
+	wchar_t string[APP_MAX_PATH] = { 0 };
 } StringUTF16;
 
 typedef struct Hotkey {
@@ -46,20 +45,27 @@ typedef struct Hotkey {
 	StringUTF8 fileNameUTF8;
 } Hotkey;
 
-typedef struct playback_engine {
+typedef struct Playback_Engine {
 	bool active;
 	ma_engine engine;
+	ma_engine repeatEngines[NUM_REPEAT_ENGINES];
 	ma_device device;
 	ma_sound sounds[MAX_SOUNDS];
 	char deviceName[256];
 } Playback_Engine;
 
-typedef struct capture_engine {
+typedef struct Capture_Engine {
 	ma_engine engine;
 	ma_device device;
 	char captureDeviceName[256];
 	char duplexDeviceName[256];
 } Capture_Engine;
+
+typedef struct Repeat_Engine {
+	bool active;
+	ma_engine engine;
+	ma_device* pDevice;
+};
 
 // GUI Globals
 #define SOUNDS_PER_PAGE 10
@@ -113,7 +119,7 @@ bool UserPressedReturn = false;
 bool UserPressedEscape = false;
 bool UserPressedBackspace = false;
 bool WindowShouldClose = false;
-bool DisplayAudioErrorMessage = false;
+bool DisplayErrorMessageWindow = false;
 #ifdef _DEBUG
 bool ShowDebugWindow;
 #endif
@@ -159,7 +165,7 @@ void InitAudioSystem();
 void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_device* duplexDevice, char* duplexDeviceName);
 void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName);
 void InitSQLite();
-void InterpretAudioErrorMessage(ma_result result, StringUTF8* errorMessage);
+void InterpretAudioErrorMessage(ma_result result, uint32_t hotKeyIndex);
 LRESULT CALLBACK KeyboardHookCallback(_In_ int nCode, _In_ WPARAM wParam, _In_ LPARAM lParam);
 void LoadConfigFromDatabase();
 void LoadDevicesFromDatabase();
