@@ -1,4 +1,5 @@
-![AcousticSoundboard_2022-01-23_12-15-54](https://user-images.githubusercontent.com/64415017/150692162-4ae9ae60-7821-4e36-9b6a-6630eb629706.png)
+
+<img width="1266" height="853" alt="AcousticSoundboard_JOfDo9O9Vi" src="https://github.com/user-attachments/assets/e69369ce-65ff-4d1b-8047-fe12e519cae6" />
 
 Acoustic Soundboard is a program for Windows which strives to be easy to use and lightweight. The main purpose is to conveniently play audio files to others while allowing the user to hear what is playing and still use their microphone normally. There is no installation required, simply unzip the contents wherever you like. On closing, the soundboard will automatically save the user's last devices, sounds, and hotkeys to a database file.
 
@@ -23,9 +24,8 @@ With this setup, you should be able to select the virtual audio cable as your mi
 ----------------------------------------
 Help section
 * IMPORTANT: Windows may warn you that this program contains a virus because it hooks the keyboard. Your data stays on your computer only.
-* IMPORTANT: If your hotkeys do not work inside another program, try running Acoustic Soundboard as administrator. This is due to a Windows security feature (integrity levels). In general, you should avoid running programs as administrator, but this one is open source, so you can verify that it is safe to use and compile it yourself.
-* You can press the PAUSE|BREAK key on your keyboard to stop all sounds
-* The soundboard only knows about devices that were detected when it started. In other words, if you plug in a microphone or speakers while the sondboard is running, you need to close and restart the soundboard for it to detect them.
+* IMPORTANT: If your hotkeys do not work inside anotherrogram, try running Acoustic Soundboard as administrator. This is due to a Windows security feature (integrity levels). In general, you should avoid running programs as administrator, but this one is open source, so you can verify that it is safe to use and compile it yourself.
+* You can press the PAUSE|BREAK key on your keyboard totop all sounds
+* The soundboard only knows about devices that were detected when it started. In other words, if you plug in a microphone or speakers while the sondboard is running, you need to close and restart the soundboard for it to detect the
 * If your program does not allow you to select a microphone, you may have to set the virtual audio cable as your default recording (input) device in Windows before starting your other program.
-* If you want to completely reset all settings, you can simply delete the "hotkeys.db" file the soundboard creates, and you will have a blank slate the next time you start it. You should probably close the program before doing so, though.
- ----------------------------------------
+* If you want to completely reset all settings, you canimply delete the "hotkeys.db" file the soundboard creates, and you will have a blank slate the next time you start it. You should probably close the program before doing so, t
