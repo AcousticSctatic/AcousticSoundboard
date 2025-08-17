@@ -385,8 +385,6 @@ void ClosePlaybackDevices()
 			ma_engine_uninit(&PlaybackEngines[i].engine);
 			ma_device_uninit(&PlaybackEngines[i].device);
 
-
-
 			for (int j = 0; j < NUM_SOUNDS; j++)
 			{
 				if (SoundLoaded[i][j] == true)
@@ -1461,11 +1459,10 @@ cleanup:
 ma_result PlayAudio(uint32_t iEngine, uint32_t iSound, const wchar_t* filePath)
 {
 	ma_result result = MA_SUCCESS;
+	ma_uint32 flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE |
+		MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC;
 	if (SoundLoaded[iEngine][iSound] == false)
 	{
-		ma_uint32 flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE |
-			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC |
-			MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
 
 		result = ma_sound_init_from_file_w(&PlaybackEngines[iEngine].engine,
 			filePath, flags, NULL, NULL, &PlaybackEngines[iEngine].sounds[iSound]);
@@ -1478,7 +1475,53 @@ ma_result PlayAudio(uint32_t iEngine, uint32_t iSound, const wchar_t* filePath)
 		SoundLoaded[iEngine][iSound] = true;
 	}
 
+	if (ma_sound_is_playing(&PlaybackEngines[iEngine].sounds[iSound]) == true) // We want to repeat the sound
+	{
+		for (int i = 0; i < NUM_REPEAT_SOUNDS; i++)
+		{
+			if (PlaybackEngines[iEngine].repeatSounds[i].soundLoaded == true)
+			{
+				if (PlaybackEngines[iEngine].repeatSounds[i].soundIndex == iSound)
+				{
+					bool soundAlreadyPlaying = ma_sound_is_playing(&PlaybackEngines[iEngine].repeatSounds[i].sound);
+					if (soundAlreadyPlaying == false)
+					{
+						ma_result repeatResult;
+						repeatResult = ma_sound_start(&PlaybackEngines[iEngine].repeatSounds[i].sound);
+						break;
+					}
+				}
+				else
+				{
+					ma_sound_uninit(&PlaybackEngines[iEngine].repeatSounds[i].sound);
+					ma_result initRepeatResult;
+					initRepeatResult = ma_sound_init_copy(&PlaybackEngines[iEngine].engine,
+						&PlaybackEngines[iEngine].sounds[iSound], flags, NULL, &PlaybackEngines[iEngine].repeatSounds[i].sound);
+
+					PlaybackEngines[iEngine].repeatSounds[i].soundLoaded = true;
+					PlaybackEngines[iEngine].repeatSounds[i].soundIndex = iSound;
+					ma_result repeatResult;
+					repeatResult = ma_sound_start(&PlaybackEngines[iEngine].repeatSounds[i].sound);
+					break;
+				}
+			}
+			else
+			{
+				ma_result initRepeatResult;
+				initRepeatResult = ma_sound_init_copy(&PlaybackEngines[iEngine].engine,
+					&PlaybackEngines[iEngine].sounds[iSound], flags, NULL, &PlaybackEngines[iEngine].repeatSounds[i].sound);
+
+				PlaybackEngines[iEngine].repeatSounds[i].soundLoaded = true;
+				PlaybackEngines[iEngine].repeatSounds[i].soundIndex = iSound;
+				ma_result repeatResult;
+				repeatResult = ma_sound_start(&PlaybackEngines[iEngine].repeatSounds[i].sound);
+				break;
+			}
+		}
+	}
+
 	result = ma_sound_start(&PlaybackEngines[iEngine].sounds[iSound]);
+
 	return result;
 }
 
@@ -1865,6 +1908,14 @@ void UnloadSound(int iSound)
 		if (SoundLoaded[i][iSound] == true)
 		{
 			ma_sound_uninit(&PlaybackEngines[i].sounds[iSound]);
+			for (int j = 0; j < NUM_REPEAT_SOUNDS; j++)
+			{
+				if (PlaybackEngines[i].repeatSounds[j].soundLoaded == true)
+				{
+					ma_sound_uninit(&PlaybackEngines[i].repeatSounds[j].sound);
+					PlaybackEngines[i].repeatSounds[j].soundLoaded = false;
+				}
+			}
 			SoundLoaded[i][iSound] = false;
 		}
 	}

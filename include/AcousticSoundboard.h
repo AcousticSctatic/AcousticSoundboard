@@ -21,7 +21,7 @@
 #pragma comment(lib,"dxgi.lib")
 #pragma comment(lib,"sqlite3.lib")
 #define MAX_PLAYBACK_DEVICES 2
-#define NUM_REPEAT_ENGINES 5
+#define NUM_REPEAT_SOUNDS 10
 #define MAX_SOUNDS 50
 #define APP_MAX_PATH 2048
 
@@ -45,12 +45,18 @@ typedef struct Hotkey {
 	StringUTF8 fileNameUTF8;
 } Hotkey;
 
+typedef struct RepeatSound {
+	ma_sound sound;
+	bool soundLoaded;
+	int soundIndex;
+} RepeatSound;
+
 typedef struct Playback_Engine {
 	bool active;
 	ma_engine engine;
-	ma_engine repeatEngines[NUM_REPEAT_ENGINES];
 	ma_device device;
 	ma_sound sounds[MAX_SOUNDS];
+	RepeatSound repeatSounds[NUM_REPEAT_SOUNDS];
 	char deviceName[256];
 } Playback_Engine;
 
@@ -60,12 +66,6 @@ typedef struct Capture_Engine {
 	char captureDeviceName[256];
 	char duplexDeviceName[256];
 } Capture_Engine;
-
-typedef struct Repeat_Engine {
-	bool active;
-	ma_engine engine;
-	ma_device* pDevice;
-};
 
 // GUI Globals
 #define SOUNDS_PER_PAGE 10

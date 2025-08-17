@@ -76824,6 +76824,8 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     result = ma_resource_manager_data_source_init_copy(pEngine->pResourceManager, pExistingSound->pResourceManagerDataSource, pSound->pResourceManagerDataSource);
     if (result != MA_SUCCESS) {
+
+
         ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
         return result;
     }
