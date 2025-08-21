@@ -28,4 +28,4 @@ Help section
 * You can press the PAUSE|BREAK key on your keyboard totop all sounds
 * The soundboard only knows about devices that were detected when it started. In other words, if you plug in a microphone or speakers while the sondboard is running, you need to close and restart the soundboard for it to detect the
 * If your program does not allow you to select a microphone, you may have to set the virtual audio cable as your default recording (input) device in Windows before starting your other program.
-* If you want to completely reset all settings, you canimply delete the "hotkeys.db" file the soundboard creates, and you will have a blank slate the next time you start it. You should probably close the program before doing so, t
+* If you want to completely reset all settings, you canimply delete the "hotkeys.db" file the soundboard creates, and you will have a blank slate the next time you start it.
