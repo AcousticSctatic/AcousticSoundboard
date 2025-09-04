@@ -63,7 +63,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 	ImGuiIO& io = ImGui::GetIO();
 	(void)io;
 	io.ConfigFlags = ImGuiConfigFlags_NavEnableKeyboard;
-	io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", 20.0f);
+	{
+		wchar_t pathToWindows[MAX_PATH] = { 0 };
+		wchar_t pathToFont[MAX_PATH] = { 0 };
+		char pathToFontUTF8[MAX_PATH] = { 0 };
+		if (GetSystemWindowsDirectoryW(pathToWindows, MAX_PATH))
+		{
+			PathCchCombine(pathToFont, MAX_PATH, pathToWindows, L"Fonts\\segoeuib.ttf");
+			EncodeUTF8(pathToFont, MAX_PATH, pathToFontUTF8, MAX_PATH);
+			io.Fonts->AddFontFromFileTTF(pathToFontUTF8, 20.0f);
+		}
+	}
 	ImGuiStyle& style = ImGui::GetStyle();
 	ImGui::StyleColorsDark();
 	style.ScaleAllSizes(main_scale);
@@ -95,7 +105,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 		return 1;
 	}
 
-	EncodeUTF8(&PathToDatabase, &PathToDatabaseUTF8);
+	EncodeUTF8(PathToDatabase.string, PathToDatabase.numWideChars, PathToDatabaseUTF8.string, PathToDatabaseUTF8.numChars);
 	InitSQLite();
 	LoadHotkeysFromDatabase();
 	LoadDevicesFromDatabase();
@@ -137,7 +147,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_  HINSTANCE hPrevInstance, 
 LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
-		return true;
+	{
+		return 1;
+	}
 
 	switch (message)
 	{		
@@ -273,7 +285,7 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 			{
 				CapturedKeyCode = (uint32_t)wParam;
 				CapturedKeyMod = 0;
-				EncodeUTF8(&CapturedKeyText, &CapturedKeyTextUTF8);
+				EncodeUTF8(CapturedKeyText.string, CapturedKeyText.numWideChars, CapturedKeyTextUTF8.string, CapturedKeyTextUTF8.numChars);
 				bool altDown = (GetAsyncKeyState(VK_MENU) < 0);
 				bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) < 0);
 				bool shiftDown = (GetAsyncKeyState(VK_SHIFT) < 0);
@@ -308,9 +320,9 @@ LRESULT CALLBACK Win32Callback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 		WindowShouldClose = true;
 		break;
 	default:
-		return DefWindowProc(hWnd, message, wParam, lParam);
+		break;
 	}
-	return 0;
+	return DefWindowProcW(hWnd, message, wParam, lParam);
 }
 
 void AudioCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -773,7 +785,7 @@ void DrawHotkeyTable()
 					// Zero fileNameBuffer so we can reuse it to store just the file name part of the path
 					wmemset(fileNamebuffer.string, L'\0', fileNamebuffer.numWideChars);
 					wcscpy(fileNamebuffer.string, filePart);
-					EncodeUTF8(&fileNamebuffer, &Hotkeys[i].fileNameUTF8);
+					EncodeUTF8(fileNamebuffer.string, fileNamebuffer.numWideChars, Hotkeys[i].fileNameUTF8.string, Hotkeys[i].fileNameUTF8.numChars);
 				}
 			}
 			else 
@@ -899,17 +911,17 @@ void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput,
 	memcpy((pOutput), (pInput), (frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels)));
 }
 
-void EncodeUTF8(StringUTF16* wideStr, StringUTF8* str)
+void EncodeUTF8(wchar_t* wideStr, int numWideChars, char* str, int numChars)
 {
-	wideStr->string[wideStr->numWideChars - 1] = L'\0';
+	wideStr[numWideChars - 1] = L'\0';
 	int numBytesRequired = 0;
-	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr->string, -1, NULL, 0, NULL, NULL);
-	if (str->numChars < numBytesRequired)
+	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr, -1, NULL, 0, NULL, NULL);
+	if (numChars < numBytesRequired)
 	{
 		PrintToErrorLogAndExit(L"EncodeUTF8() the first call to WideCharToMultiByte found the buffer size required was larger than the given number of chars in the UTF8-string (variable str)");
 		// This error is considered unrecoverable and I want it to be very visible
 	}
-	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr->string, -1, str->string, numBytesRequired, NULL, NULL);
+	numBytesRequired = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideStr, -1, str, numBytesRequired, NULL, NULL);
 	if (numBytesRequired == 0)
 	{
 		PrintToLogWin32Error();

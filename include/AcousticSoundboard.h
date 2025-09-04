@@ -160,7 +160,7 @@ void DrawGUI();
 void DrawHotkeyTable();
 void DrawKeyCaptureWindow();
 void DuplexDeviceCallback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
-void EncodeUTF8(StringUTF16* wideStr, StringUTF8* str);
+void EncodeUTF8(wchar_t* wideStr, int numWideChars, char* str, int numChars);
 void InitAudioSystem();
 void InitCaptureDevice(ma_device_id* captureId, char* captureDeviceName, ma_device* duplexDevice, char* duplexDeviceName);
 void InitPlaybackDevice(ma_device_id* deviceId, int iEngine, char* deviceName);
